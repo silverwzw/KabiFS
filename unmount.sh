@@ -1,2 +1,2 @@
 #!/bin/bash
-fusermount -u ./mnt
+sudo -u root -H sh -c "fusermount -u ./mnt"

@@ -1,2 +1,2 @@
 #!/bin/bash
-./kabi ./mnt
+sudo -u root -H sh -c "./kabi -oallow_other ./mnt"
