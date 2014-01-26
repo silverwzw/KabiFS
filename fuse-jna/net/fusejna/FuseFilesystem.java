@@ -5,8 +5,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.BufferOverflowException;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Logger;
+import org.apache.log4j.Logger;
 import java.util.regex.Pattern;
+
 
 import net.fusejna.StructFlock.FlockWrapper;
 import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
@@ -515,7 +516,7 @@ public abstract class FuseFilesystem
 		mountLock.lock();
 		if (mountPoint != null) {
 			mountLock.unlock();
-			throw new IllegalStateException("Cannot turn logging on/orr when filesystem is already mounted.");
+			throw new IllegalStateException("Cannot turn logging on/off when filesystem is already mounted.");
 		}
 		this.logger = logger;
 		mountLock.unlock();

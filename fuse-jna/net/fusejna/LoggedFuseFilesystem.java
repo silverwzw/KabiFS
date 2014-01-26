@@ -2,8 +2,9 @@ package net.fusejna;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import java.util.Arrays;
+
+import org.apache.log4j.Logger;
 
 import net.fusejna.StructFlock.FlockWrapper;
 import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
@@ -14,525 +15,265 @@ import net.fusejna.types.TypeMode.ModeWrapper;
 
 final class LoggedFuseFilesystem extends FuseFilesystem
 {
-	private static interface LoggedMethod<T>
-	{
-		public T invoke();
-	}
-
-	private static interface LoggedVoidMethod
-	{
-		public void invoke();
-	}
-
-	private static final String methodSuccess = "Method succeeded.";
-	private static final String methodFailure = "Exception thrown: ";
-	private static final String methodResult = " Result: ";
-	private final String className;
-	private final Logger actualLogger;
+	private final Logger logger;
 	private final FuseFilesystem filesystem;
 
 	LoggedFuseFilesystem(final FuseFilesystem filesystem, final Logger logger)
 	{
 		this.filesystem = filesystem;
-		actualLogger = logger;
-		className = filesystem.getClass().getName();
+		if (logger != null) {
+			this.logger = logger;
+		} else {
+			this.logger = Logger.getLogger(filesystem.getClass());
+		}
 	}
 
+	private final String log(Object ... args){
+		return "FUSE-JNA : " + (args.length == 0 ? "" : Arrays.toString(args));
+	}
+	
 	@Override
 	public int access(final String path, final int access)
 	{
-		return log("access", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.access(path, access);
-			}
-		}, path, access);
+		logger.debug(log(path,access));
+		return filesystem.access(path, access);
 	}
 
 	@Override
 	public void afterUnmount(final File mountPoint)
 	{
-		log("afterUnmount", new LoggedVoidMethod()
-		{
-			@Override
-			public void invoke()
-			{
-				filesystem.afterUnmount(mountPoint);
-			}
-		}, mountPoint.toString());
+		logger.debug(log(mountPoint));
+		filesystem.afterUnmount(mountPoint);
 	}
 
 	@Override
 	public void beforeMount(final File mountPoint)
 	{
-		log("beforeMount", new LoggedVoidMethod()
-		{
-			@Override
-			public void invoke()
-			{
-				filesystem.beforeMount(mountPoint);
-			}
-		}, mountPoint.toString());
+		logger.debug(log(mountPoint));
+		filesystem.beforeMount(mountPoint);
 	}
 
 	@Override
 	public void beforeUnmount(final File mountPoint)
 	{
-		log("beforeUnmount", new LoggedVoidMethod()
-		{
-			@Override
-			public void invoke()
-			{
-				filesystem.beforeUnmount(mountPoint);
-			}
-		}, mountPoint.toString());
+		logger.debug(log(mountPoint));
+		filesystem.beforeUnmount(mountPoint);
 	}
 
 	@Override
 	public int bmap(final String path, final FileInfoWrapper info)
 	{
-		return log("bmap", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.bmap(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.bmap(path, info);
 	}
 
 	@Override
 	public int chmod(final String path, final ModeWrapper mode)
 	{
-		return log("chmod", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.chmod(path, mode);
-			}
-		}, path, mode);
+		logger.debug(log(path,mode));
+		return filesystem.chmod(path, mode);
 	}
 
 	@Override
 	public int chown(final String path, final long uid, final long gid)
 	{
-		return log("chown", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.chown(path, uid, gid);
-			}
-		}, path, uid, gid);
+		logger.debug(log(path,uid,gid));
+		return filesystem.chown(path, uid, gid);
 	}
 
 	@Override
 	public int create(final String path, final ModeWrapper mode, final FileInfoWrapper info)
 	{
-		return log("create", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.create(path, mode, info);
-			}
-		}, path, mode, info);
+		logger.debug(log(path, mode, info));
+		return filesystem.create(path, mode, info);
 	}
 
 	@Override
 	public void destroy()
 	{
-		log("destroy", new LoggedVoidMethod()
-		{
-			@Override
-			public void invoke()
-			{
-				filesystem.destroy();
-			}
-		});
+		logger.debug(log());
+		filesystem.destroy();
 	}
 
 	@Override
 	public int fgetattr(final String path, final StatWrapper stat, final FileInfoWrapper info)
 	{
-		return log("fgetattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.fgetattr(path, stat, info);
-			}
-		}, path, stat);
+		logger.debug(log(path, stat, info));
+		return filesystem.fgetattr(path, stat, info);
 	}
 
 	@Override
 	public int flush(final String path, final FileInfoWrapper info)
 	{
-		return log("flush", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.flush(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.flush(path, info);
 	}
 
 	@Override
 	public int fsync(final String path, final int datasync, final FileInfoWrapper info)
 	{
-		return log("flush", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.fsync(path, datasync, info);
-			}
-		}, path, info);
+		logger.debug(log(path, datasync, info));
+		return filesystem.fsync(path, datasync, info);
 	}
 
 	@Override
 	public int fsyncdir(final String path, final int datasync, final FileInfoWrapper info)
 	{
-		return log("fsyncdir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.fsyncdir(path, datasync, info);
-			}
-		}, path, info);
+		logger.debug(log(path, datasync, info));
+		return filesystem.fsyncdir(path, datasync, info);
 	}
 
 	@Override
 	public int ftruncate(final String path, final long offset, final FileInfoWrapper info)
 	{
-		return log("getattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.ftruncate(path, offset, info);
-			}
-		}, path, offset, info);
+		logger.debug(log(path, offset, info));
+		return filesystem.ftruncate(path, offset, info);
 	}
 
 	@Override
 	public int getattr(final String path, final StatWrapper stat)
 	{
-		return log("getattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.getattr(path, stat);
-			}
-		}, path, stat);
+		logger.debug(log(path, stat));
+		return filesystem.getattr(path, stat);
 	}
 
 	@Override
 	protected String getName()
 	{
-		return log("getName", (String) null, new LoggedMethod<String>()
-		{
-			@Override
-			public String invoke()
-			{
-				return filesystem.getName();
-			}
-		});
+		logger.debug(log());
+		return filesystem.getName();
 	}
 
 	@Override
 	protected String[] getOptions()
 	{
-		return log("getOptions", (String[]) null, new LoggedMethod<String[]>()
-		{
-			@Override
-			public String[] invoke()
-			{
-				return filesystem.getOptions();
-			}
-		});
+		logger.debug(log());
+		return filesystem.getOptions();
 	}
 
 	@Override
 	public int getxattr(final String path, final String xattr, final ByteBuffer buf, final long size, final long position)
 	{
-		return log("getxattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.getxattr(path, xattr, buf, size, position);
-			}
-		}, path, xattr, buf, size, position);
+		logger.debug(log(path, xattr, buf, size, position));
+		return filesystem.getxattr(path, xattr, buf, size, position);
 	}
 
 	@Override
 	public void init()
 	{
-		log("init", new LoggedVoidMethod()
-		{
-			@Override
-			public void invoke()
-			{
-				filesystem.init();
-			}
-		});
+		logger.debug(log());
+		filesystem.init();
 	}
 
 	@Override
 	public int link(final String path, final String target)
 	{
-		return log("link", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.link(path, target);
-			}
-		}, path, target);
+		logger.debug(log(path, target));
+		return filesystem.link(path, target);
 	}
 
 	@Override
 	public int listxattr(final String path, final XattrListFiller filler)
 	{
-		return log("listxattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.listxattr(path, filler);
-			}
-		}, path, filler);
+		logger.debug(log(path, filler));
+		return filesystem.listxattr(path, filler);
 	}
 
 	@Override
 	public int lock(final String path, final FileInfoWrapper info, final FlockCommand command, final FlockWrapper flock)
 	{
-		return log("lock", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.lock(path, info, command, flock);
-			}
-		}, path, info, command, flock);
-	}
-
-	private void log(final String methodName, final LoggedVoidMethod method)
-	{
-		log(methodName, method, null, (Object[]) null);
-	}
-
-	private void log(final String methodName, final LoggedVoidMethod method, final String path, final Object... args)
-	{
-		try {
-			actualLogger.entering(className, methodName, args);
-			method.invoke();
-			actualLogger.logp(Level.INFO, className, methodName, (path == null ? "" : "[" + path + "] ") + methodSuccess, args);
-			actualLogger.exiting(className, methodName, args);
-		}
-		catch (final Throwable e) {
-			logException(e, methodName, null, args);
-		}
-	}
-
-	private <T> T log(final String methodName, final T defaultValue, final LoggedMethod<T> method)
-	{
-		return log(methodName, defaultValue, method, null, (Object[]) null);
-	}
-
-	private <T> T log(final String methodName, final T defaultValue, final LoggedMethod<T> method, final String path,
-			final Object... args)
-	{
-		try {
-			actualLogger.entering(className, methodName, args);
-			final T result = method.invoke();
-			actualLogger.logp(Level.INFO, className, methodName, (path == null ? "" : "[" + path + "] ") + methodSuccess
-					+ methodResult + result, args);
-			actualLogger.exiting(className, methodName, args);
-			return result;
-		}
-		catch (final Throwable e) {
-			return logException(e, methodName, defaultValue, args);
-		}
-	}
-
-	private <T> T logException(final Throwable e, final String methodName, final T defaultValue, final Object... args)
-	{
-		final StackTraceElement[] stack = e.getStackTrace();
-		final StringBuilder builder = new StringBuilder();
-		for (final StackTraceElement element : stack) {
-			builder.append("\n" + element);
-		}
-		actualLogger.logp(Level.SEVERE, className, methodName, methodFailure + e + builder.toString(), args);
-		return defaultValue;
+		logger.debug(log(path, info, command, flock));
+		return filesystem.lock(path, info, command, flock);
 	}
 
 	@Override
 	public int mkdir(final String path, final ModeWrapper mode)
 	{
-		return log("mkdir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.mkdir(path, mode);
-			}
-		}, path, mode);
+		logger.debug(log(path, mode));
+		return filesystem.mkdir(path, mode);
 	}
 
 	@Override
 	public int mknod(final String path, final ModeWrapper mode, final long dev)
 	{
-		return log("mknod", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.mknod(path, mode, dev);
-			}
-		}, path, mode, dev);
+		logger.debug(log(path, mode, dev));
+		return filesystem.mknod(path, mode, dev);
 	}
 
 	@Override
 	public int open(final String path, final FileInfoWrapper info)
 	{
-		return log("open", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.open(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.open(path, info);
 	}
 
 	@Override
 	public int opendir(final String path, final FileInfoWrapper info)
 	{
-		return log("opendir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.opendir(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.opendir(path, info);
 	}
 
 	@Override
 	public int read(final String path, final ByteBuffer buffer, final long size, final long offset, final FileInfoWrapper info)
 	{
-		return log("read", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.read(path, buffer, size, offset, info);
-			}
-		}, path, buffer, size, offset, info);
+		logger.debug(log(path, buffer, size, offset, info));
+		return filesystem.read(path, buffer, size, offset, info);
 	}
 
 	@Override
 	public int readdir(final String path, final DirectoryFiller filler)
 	{
-		return log("readdir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.readdir(path, filler);
-			}
-		}, path, filler);
+		logger.debug(log(path, filler));
+		return filesystem.readdir(path, filler);
 	}
 
 	@Override
 	public int readlink(final String path, final ByteBuffer buffer, final long size)
 	{
-		return log("readlink", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.readlink(path, buffer, size);
-			}
-		}, path, buffer, size);
+		logger.debug(log(path, buffer, size));
+		return filesystem.readlink(path, buffer, size);
 	}
 
 	@Override
 	public int release(final String path, final FileInfoWrapper info)
 	{
-		return log("release", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.release(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.release(path, info);
 	}
 
 	@Override
 	public int releasedir(final String path, final FileInfoWrapper info)
 	{
-		return log("releasedir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.releasedir(path, info);
-			}
-		}, path, info);
+		logger.debug(log(path, info));
+		return filesystem.releasedir(path, info);
 	}
 
 	@Override
 	public int removexattr(final String path, final String xattr)
 	{
-		return log("remtoexattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.removexattr(path, xattr);
-			}
-		}, path, xattr);
+		logger.debug(log(path, xattr));
+		return filesystem.removexattr(path, xattr);
 	}
 
 	@Override
 	public int rename(final String path, final String newName)
 	{
-		return log("rename", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.rename(path, newName);
-			}
-		});
+		logger.debug(log(path, newName));
+		return filesystem.rename(path, newName);
 	}
 
 	@Override
 	public int rmdir(final String path)
 	{
-		return log("rmdir", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.rmdir(path);
-			}
-		}, path);
+		logger.debug(log(path));
+		return filesystem.rmdir(path);
 	}
 
 	@Override
 	void setFinalMountPoint(final File mountPoint)
 	{
+		logger.debug(log(mountPoint));
 		super.setFinalMountPoint(mountPoint);
 		filesystem.setFinalMountPoint(mountPoint);
 	}
@@ -540,92 +281,50 @@ final class LoggedFuseFilesystem extends FuseFilesystem
 	@Override
 	public int setxattr(final String path, final ByteBuffer buf, final long size, final int flags, final long position)
 	{
-		return log("setxattr", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.setxattr(path, buf, size, flags, position);
-			}
-		}, path, buf, size, flags, position);
+		logger.debug(log(path, buf, size, flags, position));
+		return filesystem.setxattr(path, buf, size, flags, position);
 	}
 
 	@Override
 	public int statfs(final String path, final StatvfsWrapper wrapper)
 	{
-		return log("statfs", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.statfs(path, wrapper);
-			}
-		}, path, wrapper);
+		logger.debug(log(path, wrapper));
+		return filesystem.statfs(path, wrapper);
 	}
 
 	@Override
 	public int symlink(final String path, final String target)
 	{
-		return log("symlink", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.symlink(path, target);
-			}
-		}, path, target);
+		logger.debug(log(path, target));
+		return filesystem.symlink(path, target);
 	}
 
 	@Override
 	public int truncate(final String path, final long offset)
 	{
-		return log("truncate", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.truncate(path, offset);
-			}
-		}, path, offset);
+		logger.debug(log(path, offset));
+		return filesystem.truncate(path, offset);
 	}
 
 	@Override
 	public int unlink(final String path)
 	{
-		return log("unlink", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.unlink(path);
-			}
-		}, path);
+		logger.debug(log(path));
+		return filesystem.unlink(path);
 	}
 
 	@Override
 	public int utimens(final String path, final TimeBufferWrapper wrapper)
 	{
-		return log("utimens", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.utimens(path, wrapper);
-			}
-		}, path, wrapper);
+		logger.debug(log(path, wrapper));
+		return filesystem.utimens(path, wrapper);
 	}
 
 	@Override
 	public int write(final String path, final ByteBuffer buf, final long bufSize, final long writeOffset,
 			final FileInfoWrapper wrapper)
 	{
-		return log("write", 0, new LoggedMethod<Integer>()
-		{
-			@Override
-			public Integer invoke()
-			{
-				return filesystem.write(path, buf, bufSize, writeOffset, wrapper);
-			}
-		}, path, buf, bufSize, writeOffset, wrapper);
+		logger.debug(log(path, buf, bufSize, writeOffset, wrapper));
+		return filesystem.write(path, buf, bufSize, writeOffset, wrapper);
 	}
 }
