@@ -24,7 +24,7 @@ final class LoggedFuseFilesystem extends FuseFilesystem
 		if (logger != null) {
 			this.logger = logger;
 		} else {
-			this.logger = Logger.getLogger(filesystem.getClass());
+			this.logger = Logger.getLogger(LoggedFuseFilesystem.class);
 		}
 	}
 
