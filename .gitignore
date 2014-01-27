@@ -2,5 +2,5 @@
 /bin
 /lib/log4j-1.2.17-javadoc.jar
 /fuse-jna/net/fusejna/examples
-/log4j/log
+/log
 *.class
