@@ -1,13 +1,16 @@
 package com.silverwzw.kabiFS;
 
-import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.apache.log4j.Logger;
 
-import com.silverwzw.kabiFS.Options.ParseException;
-import com.silverwzw.kabiFS.Options.ParseNameException;
+import com.silverwzw.JSON.JSON.JsonStringFormatException;
+import com.silverwzw.kabiFS.util.MountOptions;
+import com.silverwzw.kabiFS.util.Util;
+import com.silverwzw.kabiFS.util.MountOptions.ParseException;
+import com.silverwzw.kabiFS.util.MountOptions.ParseNameException;
 
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
@@ -30,19 +33,28 @@ public class KabiFS extends FuseFilesystemAdapterFull
 	public static void main(final String... args) throws FuseException
 	{
 		KabiFS kabifs;
-		Options options = null;
+		MountOptions options = null;
 		
 		logger.info("parse command line args: " + Arrays.toString(args));
 		try {
-			options = new Options(args);
+			options = new MountOptions(args);
 		} catch (ParseException ex) {
-			System.err.print(Options.usage);
-			if (ex instanceof ParseNameException) {
-				System.err.print(Options.namePolicy);
-			}
-			logger.fatal("parse exception", ex);
+			System.err.print(MountOptions.usage);
+			logger.fatal("Parse Exception", ex);
 			return;
-		} 
+		} catch (ParseNameException ex) {
+			System.err.print(MountOptions.namePolicy);
+			logger.fatal("Parse Name Policy Exception");
+			return;
+		} catch (JsonStringFormatException ex) {
+			System.err.print("config json isn't in correct format, only standrad JSON string is accepted.\n");
+			logger.fatal("JSON parse Exception", ex);
+			return;
+		} catch (IOException ex) {
+			System.err.print("IOException when parsing.\n");
+			logger.fatal("I/O Exception when parsing, ", ex);
+			return;
+		}
 		logger.info("parsed args: " + options);
 		
 		kabifs = new KabiFS(options);
@@ -50,18 +62,18 @@ public class KabiFS extends FuseFilesystemAdapterFull
 		kabifs.mount();
 	}
 
-	protected final Options options;
+	protected final MountOptions mntoptions;
 	
-	public KabiFS(Options options) {
-		this.options = options; 
+	public KabiFS(MountOptions options) {
+		this.mntoptions = options; 
 	}
 
 	protected String[] getOptions() {
-		return options.fuseOptions;
+		return mntoptions.fuseOptions();
 	}
 	
 	public void mount() throws FuseException {
-		mount(options.mountPoint);
+		mount(mntoptions.mountPoint());
 	}
 	
 	@Override
@@ -72,33 +84,21 @@ public class KabiFS extends FuseFilesystemAdapterFull
 			return 0;
 		}
 		if (path.equals(Util.buildPath(metaDirName))) {
-			stat.setMode(NodeType.DIRECTORY,
-					true, false, true,
-					true, false, true,
-					false, false, false);
+			Util.statMetaMode(stat, NodeType.DIRECTORY);
 			return 0;
 		}
 		if (path.equals(Util.buildPath(metaDirName, "mount_options.txt"))) {
-			stat.setMode(NodeType.FILE,
-					true, false, false,
-					true, false, false,
-					false, false, false);
-			stat.size(options.toFile().length());
+			Util.statMetaMode(stat, NodeType.FILE);
+			stat.size(mntoptions.toMetaFile().length());
 			return 0;
 		}
 		if (path.equals(Util.buildPath(metaDirName, "fs_parameters.txt"))) {
-			stat.setMode(NodeType.FILE,
-					true, false, false,
-					true, false, false,
-					false, false, false);
+			Util.statMetaMode(stat, NodeType.FILE);
 			stat.size("".length());
 			return 0;
 		}
 		if (path.equals(Util.buildPath(metaDirName, "commits.txt"))) {
-			stat.setMode(NodeType.FILE,
-					true, false, false,
-					true, false, false,
-					false, false, false);
+			Util.statMetaMode(stat, NodeType.FILE);
 			stat.size("".length());
 			return 0;
 		}
@@ -109,9 +109,9 @@ public class KabiFS extends FuseFilesystemAdapterFull
 	public int read(final String path, final ByteBuffer buffer, final long size, final long offset, final FileInfoWrapper info)
 	{
 		if (path.equals(Util.buildPath(metaDirName, "mount_options.txt"))) {
-			return Util.readString(options.toFile(), buffer, size, offset);
+			return Util.readString(mntoptions.toMetaFile(), buffer, size, offset);
 		}
-		return Util.readString("KabiFS default string content\n", buffer, size, offset);
+		return Util.readString("", buffer, size, offset);
 	}
 
 	@Override

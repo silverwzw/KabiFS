@@ -1,0 +1,15 @@
+{
+	"mode" : "LOG",
+	"base" : "MAIN",
+	"mongo" : {
+		"servers" : [
+			{
+				"address" : "localhost"
+			}
+		],
+		"db" : "kabi"
+	},
+	"fuse" : [
+		"-oallow_other"
+	]
+}

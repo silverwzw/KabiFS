@@ -1,12 +1,19 @@
-package com.silverwzw.kabiFS;
+package com.silverwzw.kabiFS.util;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
+
+import com.silverwzw.JSON.JSON;
+import com.silverwzw.JSON.JSON.JsonStringFormatException;
+import com.silverwzw.kabiFS.util.Util.MongoConn;
+
 
 /**
  * This Object carries all options passed to KabiFS
  * @author silverwzw
  */
-public class Options {
+public class MountOptions {
 	/**
 	 * if commit name is given:
 	 * 	mount that commit;<br>
@@ -44,28 +51,35 @@ public class Options {
 			}
 		}
 	};
-	
+
 	@SuppressWarnings("serial")
 	public static class ParseException extends Exception {};
 	@SuppressWarnings("serial")
-	public static class ParseNameException extends ParseException {};
+	public static class ParseNameException extends Exception {};
 	
 	public static final String usage, namePolicy;
 	
 	static {
-		usage = "Usage: KabiFS [mode [base [new]]] [--fuse <fuse_options>] mount_point\n"
-				+ "\tmode: by default is LOG, other options are: SHADOW, DIRECT\n"
-				+ "\tbase: name of base commit/branch, by default is \"MAIN\" branch\n"
-				+ "\tnew: name of new branch\n";
+		usage = "Usage: KabiFS <config_file> <mount_point>\n"
+				+ "\tconfig : a json config file, use \'-\' to read from stdin.\n"
+				+ "\tmount_point : the location to mount the filesystem\n\n"
+				+ "\tmode(String): by default is LOG, other options are: SHADOW, DIRECT\n"
+				+ "\tbase(String): name of base commit/branch, by default is \"MAIN\" branch\n"
+				+ "\tnew (String): name of new branch\n"
+				+ "\tmongo(Array): mongodb connection details\n"
+				+ "\tfuse (Array): fuse options\n";
 		namePolicy = "Note:\tBranch name should match regexp ^[0-9a-zA-Z_]+$\n"
 				+ "\tCommit name shoud match regexp ^[0-9a-zA-Z_]+@[0-9]*$\n";
 	}
+	
+	private String originJson;
 	
 	protected MountMode mountMode;
 	protected String baseCommitName;
 	protected String newBranchName;
 	protected String[] fuseOptions;
 	protected String mountPoint;
+	protected Util.MongoConn mongoConn;
 	
 	// commit name 	= branch_name@unmount_time
 	// or 			= branch_name@
@@ -83,58 +97,67 @@ public class Options {
 	/**
 	 * parse command line arguments to an Option object
 	 * @param args command line arguments
-	 * @throws ParseException if parse error occurs
+	 * @throws JsonStringFormatException if the json file isn't in correct json format
+	 * @throws IOException if I/O exception occurs
 	 * @throws ParseNameException if parse error occurs due to naming policy 
 	 */
-	public Options(String ... args) throws ParseException {
-		int len;
-		len = args.length;
+	public MountOptions(String ... args) throws ParseException, ParseNameException, IOException, JsonStringFormatException {
 		
-		if (len == 0) {
+		if (args.length != 2) {
 			throw new ParseException();
 		}
 		
-		mountPoint = args[len - 1];
+		mountPoint = args[1];
 		
-		int i;
-		for (i = 0; i < len - 1; i++) {
-			if (args[i].equals("--fuse")) {
-				break;
-			}
+		JSON config;
+		if (args[0].equals("-")) {
+			config = JSON.parse(System.in);
+		} else {
+			config = JSON.parse(new File(args[0]));
 		}
 		
-		if (i != len - 1){
-			fuseOptions = new String[len - 2 - i];
-			for (int j = 0; j < fuseOptions.length; j++) {
-				fuseOptions[j] = args[i + j + 1];
-			}
+		originJson = config.format();
+
+		if (config.get("mode") != null) {
+			mountMode = MountMode.valueOf((String) config.get("mode").toObject());
+		} else {
+			mountMode = MountMode.LOG;
 		}
 		
-		if (i >= 1) {
-			mountMode = MountMode.getMode(args[0]);
-		}
-		
-		if (i >= 2) {
-			if (Util.branchNameCheck(args[1])) {
-				baseCommitName = args[1] + "@";
-			} else if (Util.commitNameCheck(args[1])) {
-				baseCommitName = args[1];
-			} else {
+		if (config.get("base") != null) {
+			String base;
+			base = (String) config.get("base").toObject();
+			if (Util.branchNameCheck(base)) {
+				base = base + "@";
+			} else if (!Util.commitNameCheck(base)) {
 				throw new ParseNameException();
 			}
+			baseCommitName = base;
+		} else {
+			baseCommitName = "MAIN@";
 		}
 		
-		if (i == 3) {
-			if (Util.branchNameCheck(args[2])) {
-				newBranchName = args[2];
-			} else {
+		if (config.get("new") != null) {
+			String newB;
+			newB = (String) config.get("new").toObject();
+			if (!Util.branchNameCheck(newB)) {
 				throw new ParseNameException();
 			}
+			newBranchName = newB;
+		} else {
+			newBranchName = "";
 		}
 		
-		if (i > 3) {
-			throw new ParseException();
+		if (config.get("fuse") != null) {
+			fuseOptions = new String[config.get("fuse").size()];
+			for (int i = 0; i < config.get("fuse").size(); i++) {
+				fuseOptions[i] = (String) config.get("fuse").at(i).toObject();
+			}
+		} else {
+			fuseOptions = null;
 		}
+		
+		mongoConn = new MongoConn(config.get("mongo"));
 	}
 	/**
 	 * @return mount mode
@@ -179,12 +202,11 @@ public class Options {
 				+ " fuse: " + Arrays.toString(fuseOptions())
 				+ "}";
 	}
-	
-	public String toFile() {
-		return 		"mount point\t= " + mountPoint() + "\n"
-				+ 	"mount mode\t= " + mountMode().toString() + "\n"
-				+ 	"base commit\t= " + baseCommit() + "\n"
-				+	"on branch\t= " + newBranch() + "\n"
-				+ 	"fuse option\t= " + Arrays.toString(fuseOptions()) + "\n";
+	/**
+	 * to meta file format.
+	 * @return corresponding meta file content.
+	 */
+	public String toMetaFile() {
+		return "Mount on: " + new File(mountPoint).getAbsolutePath() + "\n\nOptions:" + originJson + "\n";
 	}
 }
