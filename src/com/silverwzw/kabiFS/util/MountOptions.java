@@ -119,7 +119,7 @@ public class MountOptions {
 		originJson = config.format();
 
 		if (config.get("mode") != null) {
-			mountMode = MountMode.valueOf((String) config.get("mode").toObject());
+			mountMode = MountMode.getMode((String) config.get("mode").toObject());
 		} else {
 			mountMode = MountMode.LOG;
 		}

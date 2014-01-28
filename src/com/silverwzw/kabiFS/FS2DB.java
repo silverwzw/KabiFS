@@ -33,5 +33,6 @@ public class FS2DB {
 			}
 		}
 		db = new Mongo(servers).getDB(connCFG.db());
+		this.commit = commit;
 	}
 }
