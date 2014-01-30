@@ -21,6 +21,48 @@ public class KabiCommit {
 	protected ObjectId basedOn;
 	protected Map<ObjectId, ObjectId> patches;
 	
+	/**
+	 * NodeId is the id of the node, an inter-media between ObjectId and Node
+	 * @author silverwzw
+	 */
+	public final class NodeId implements Comparable<NodeId> {
+		private ObjectId objId;
+		public NodeId(ObjectId objId) {
+			this.objId = patches.get(objId);
+			if (this.objId == null) {
+				this.objId = objId; 
+			}
+		}
+		public final int compareTo(NodeId nodeId) {
+			return objId.compareTo(nodeId.objId);
+		}
+		/**
+		 * get the object id wrapped in node id
+		 * @return
+		 */
+		public final ObjectId oid() {
+			return objId;
+		}
+		public final int hashCode() {
+			return objId.hashCode();
+		}
+		public final boolean equals(Object o) {
+			return (o instanceof NodeId) ?  objId.equals(((NodeId) o).objId) : false;
+		}
+	}
+	
+	public abstract class KabiNode extends Node {
+		KabiNode(ObjectId oid) {
+			this.nid = new NodeId(oid);
+		}
+		KabiNode(NodeId nid) {
+			this.nid = nid;
+		}
+		public final KabiCommit commit() {
+			return KabiCommit.this;
+		}
+	}
+	
 	public KabiCommit(ObjectId id) throws CommitNotFoundException {
 		buildKabiCommit(id);
 	}
@@ -47,15 +89,5 @@ public class KabiCommit {
 	private final ObjectId findIdByName(String name) {
 		//TODO : find ObjectID by Commit Name
 		return null;
-	}
-	/**
-	 * look for the Node object in this commit (look for patches 1st, then db)
-	 * @param id the id of the node to get
-	 * @return the KabiNode object
-	 */
-	public final KabiNode getNode(ObjectId id) {
-		ObjectId patchedId;
-		patchedId = patches.get(id);
-		return KabiNode.reflectNode(patchedId == null ? id : patchedId);
 	}
 }
