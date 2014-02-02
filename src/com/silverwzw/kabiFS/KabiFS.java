@@ -3,10 +3,15 @@ package com.silverwzw.kabiFS;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Collection;
 
 import org.apache.log4j.Logger;
+import org.bson.types.ObjectId;
 
 import com.silverwzw.JSON.JSON.JsonStringFormatException;
+import com.silverwzw.kabiFS.structure.KabiCommit;
+import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
+import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Util;
 import com.silverwzw.kabiFS.util.MountOptions.ParseException;
@@ -20,10 +25,18 @@ import net.fusejna.StructStat.StatWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 import net.fusejna.util.FuseFilesystemAdapterFull;
 
-public class KabiFS extends FuseFilesystemAdapterFull
-{
+public class KabiFS extends FuseFilesystemAdapterFull {
 	private static final Logger logger;
 	private static final String metaDirName;
+	
+	public static interface DatastoreAdapter {
+		public Collection<ObjectId> getCommitSet();
+		public KabiCommit getCommit();
+		public KabiCommit getCommit(String branch);
+		public KabiCommit getCommit(String branch, long timestamp);
+		public KabiCommit getCommit(ObjectId oid);
+		public Node getNode(NodeId nid);
+	}
 	
 	static {
 		logger = Logger.getLogger(KabiFS.class);
@@ -68,6 +81,10 @@ public class KabiFS extends FuseFilesystemAdapterFull
 		this.mntoptions = options; 
 	}
 
+	/**
+	 * Overrides getOptions() in super class, returns FUSE options
+	 * @return FUSE Options, in String[], start with the 1st option
+	 */
 	protected String[] getOptions() {
 		return mntoptions.fuseOptions();
 	}

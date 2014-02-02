@@ -11,8 +11,6 @@ import java.util.regex.Pattern;
 import org.apache.log4j.Logger;
 
 import com.silverwzw.JSON.JSON;
-import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
-import com.silverwzw.kabiFS.structure.Node;
 
 
 /**
@@ -148,6 +146,7 @@ public final class Util {
 				return address;
 			}
 		}
+		
 		private final Set<Server> servers;
 		private String db;
 		{
@@ -216,15 +215,6 @@ public final class Util {
 		 */
 		public final String db() {
 			return db;
-		}
-	}
-	/**
-	 * helper class for Node
-	 */
-	public static class Nodes {
-		public static Node reflect(NodeId nid) {
-			//TODO : find node by id
-			return null;
 		}
 	}
 }

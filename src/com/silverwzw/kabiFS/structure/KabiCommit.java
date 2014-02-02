@@ -16,9 +16,11 @@ public class KabiCommit {
 		logger = Logger.getLogger(KabiCommit.class);
 	}
 	
-	protected String name;
+	protected String branch;
+	protected long timestamp;
 	protected ObjectId id;
 	protected ObjectId basedOn;
+	protected ObjectId root;
 	protected Map<ObjectId, ObjectId> patches;
 	
 	/**
@@ -63,31 +65,5 @@ public class KabiCommit {
 		}
 	}
 	
-	public KabiCommit(ObjectId id) throws CommitNotFoundException {
-		buildKabiCommit(id);
-	}
 	
-	public KabiCommit(String name) throws CommitNotFoundException {
-		buildKabiCommit(findIdByName(name));
-	}
-	/**
-	 * real constructor
-	 * @param id
-	 * @throws CommitNotFoundException if corresponding commit not found, or if id == null 
-	 */
-	private final void buildKabiCommit(ObjectId id) throws CommitNotFoundException {
-		if (id == null) {
-			throw new CommitNotFoundException();
-		}
-		//TODO: get patches, base commit, name from db
-	}
-	/**
-	 * find the Object id of commit by its name
-	 * @param name name of the commit in String
-	 * @return the object id correspond to the commit name, null if not found
-	 */
-	private final ObjectId findIdByName(String name) {
-		//TODO : find ObjectID by Commit Name
-		return null;
-	}
 }

@@ -1,5 +1,6 @@
 package com.silverwzw.kabiFS.structure;
 
+import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
@@ -7,8 +8,14 @@ import com.silverwzw.kabiFS.util.Util;
 
 public abstract class Node {
 	
-	protected NodeId nid;
+	private static final Logger logger;
 	
+	static {
+		logger = Logger.getLogger(Node.class);
+	}
+	
+	protected NodeId nid;
+	protected int counter;
 	
 	public class KabiArc extends Arc {
 
@@ -25,12 +32,19 @@ public abstract class Node {
 		}
 		
 		public final Node childNode() {
-			return Util.Nodes.reflect(nid); 
+			return null;//Util.Nodes.reflect(nid); 
 		}
 	}
 	
 	public final NodeId id(){
 		return nid;
+	}
+	
+	public final int counter() {
+		if (counter <= 0) {
+			logger.error("counter of node should be negative, OID = " + nid.oid().toString());
+		}
+		return counter;
 	}
 
 	public static enum KabiNodeType {
