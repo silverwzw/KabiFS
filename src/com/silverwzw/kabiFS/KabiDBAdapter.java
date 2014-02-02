@@ -3,22 +3,25 @@ package com.silverwzw.kabiFS;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Set;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DB;
 import com.mongodb.DBCursor;
+import com.mongodb.DBObject;
 import com.mongodb.Mongo;
 import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.KabiFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.KabiCommit;
 import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
 import com.silverwzw.kabiFS.structure.Node;
+import com.silverwzw.kabiFS.util.Util;
 import com.silverwzw.kabiFS.util.Util.MongoConn;
+import com.silverwzw.kabiFS.util.Util.ObjectNotFoundException;
 
 public class KabiDBAdapter implements DatastoreAdapter {
 	
@@ -44,22 +47,51 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	}
 
 	@Override
-	public final Collection<String> getCommitSet() {
+	public final Collection<Util.Tuple<ObjectId, String, ObjectId>> getCommitList() {
 		if (!db.collectionExists("commit")) {
 			logger.error("connot find commit collection");
 		}
 		
-		Collection<ObjectId> commitSet;
+		Collection<Util.Tuple<ObjectId, String, ObjectId>> commitList;
 		
-		commitSet = new HashSet<ObjectId>();
+		commitList = new LinkedList<Util.Tuple<ObjectId, String, ObjectId>>();
 		
 		DBCursor commitCur = db.getCollection("commit").find();
 		
 		while (commitCur.hasNext()) {
-			commitSet.add(commitCur.next())
+			DBObject dbo;
+			dbo = commitCur.next();
+			String branchName;
+			Date timestamp;
+			Util.Tuple<ObjectId, String, ObjectId> tuple;
+			tuple = new Util.Tuple<ObjectId, String, ObjectId>();
+			try {
+				branchName = Util.getObject(dbo, String.class, "name");
+				if (!Util.branchNameCheck(branchName)) {
+					throw new ObjectNotFoundException();
+				}
+			} catch (ObjectNotFoundException e) {
+				logger.error("commit " + dbo.get("_id").toString() + " does not have a proper branch name");
+				continue;
+			}
+			try {
+				timestamp = Util.getObject(dbo, Date.class, "timestamp");
+			} catch (ObjectNotFoundException e) {
+				logger.error("commit " + dbo.get("_id").toString() + " does not have timestamp (Date) field, use null");
+				timestamp = null;
+			}
+			tuple.item1 = (ObjectId) dbo.get("_id");
+			tuple.item2 = branchName + (timestamp == null ? "@" : "@" + timestamp.getTime());
+			try {
+				tuple.item3 = Util.getObject(dbo, ObjectId.class, "base");
+			} catch (ObjectNotFoundException e) {
+				logger.error("commit " + dbo.get("_id").toString() + " does not have base (ObjectId) field, use null");
+				tuple.item3 = null;
+			}
+			commitList.add(tuple);
 		}
 		
-		return commitSet;
+		return commitList;
 	}
 
 	@Override

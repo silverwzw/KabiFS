@@ -9,7 +9,9 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.apache.log4j.Logger;
+import org.bson.types.ObjectId;
 
+import com.mongodb.DBObject;
 import com.silverwzw.JSON.JSON;
 
 
@@ -85,7 +87,7 @@ public final class Util {
 		return s.getBytes().length;
 	}
 	/**
-	 * assign 550 to directory or 440 to file
+	 * assign 500 to directory or 400 to file
 	 * @param stat the State Wrapper
 	 * @param type directory or file, will get exception otherwise 
 	 * @return the state wrapper
@@ -93,13 +95,41 @@ public final class Util {
 	public static final net.fusejna.StructStat.StatWrapper statMetaMode(net.fusejna.StructStat.StatWrapper stat, net.fusejna.types.TypeMode.NodeType type) {
 		if (type.equals(net.fusejna.types.TypeMode.NodeType.FILE)) {
 			return stat.setMode(net.fusejna.types.TypeMode.NodeType.FILE
-					, true, false, false, true, false, false, false, false, false);
+					, true, false, false, false, false, false, false, false, false);
 		} else if (type.equals(net.fusejna.types.TypeMode.NodeType.DIRECTORY)) {
 			return stat.setMode(net.fusejna.types.TypeMode.NodeType.DIRECTORY
-					, true, false, true, true, false, true, false, false, false);
+					, true, false, true, false, false, false, false, false, false);
 		} else {
 			logger.error("Util.statMetaMode does not support node type of " + type.toString());
 			return stat.setMode(type);
+		}
+	}
+	@SuppressWarnings("serial")
+	public static final class ObjectNotFoundException extends Exception {};
+	/**
+	 * quick function to find dbobject in bson
+	 * @param dbo the DBObject to search
+	 * @param clazz the class of the final object
+	 * @param field_names a set of field name in order
+	 * @return corresponding Object (not necessary DBObject)
+	 * @throws ObjectNotFoundException if any one of the field is not found in the path<br>or the final object cannot be cast to specific class
+	 */
+	@SuppressWarnings("unchecked")
+	public static final <T> T getObject(final DBObject dbo, Class<T> clazz, final String ... field_names) throws ObjectNotFoundException {
+		Object o = dbo;
+		for (int i = 0; i < field_names.length; i++) {
+			String field_name;
+			field_name = field_names[i];
+			if (o instanceof DBObject && ((DBObject) o).containsField(field_name)) {
+				o = ((DBObject) o).get(field_name);
+			} else {
+				throw new ObjectNotFoundException();
+			}
+		}
+		try {
+			return (T)o;
+		} catch (java.lang.ClassCastException ex){
+			throw new ObjectNotFoundException();
 		}
 	}
 	/**
@@ -216,5 +246,29 @@ public final class Util {
 		public final String db() {
 			return db;
 		}
+	}
+	/**
+	 * store Tuple
+	 */
+	public static class Tuple<C1, C2, C3> {
+		public C1 item1;
+		public C2 item2;
+		public C3 item3;
+		{
+			item1 = null;
+			item2 = null;
+			item3 = null;
+		}
+	}
+	/**
+	 * transform CommitList to meta file String
+	 */
+	public final static String commitList2MetaFile(Collection<Tuple<ObjectId, String, ObjectId>> list) {
+		String content;
+		content = "#ObjectId\tName\tbase\n";
+		for (Util.Tuple<ObjectId, String, ObjectId> entry : list) {
+			content += entry.item1.toString() + '\t' + entry.item2 + '\t' + (entry.item3 == null ? "null" : entry.item3.toString()) + '\n';
+		}
+		return content;
 	}
 }

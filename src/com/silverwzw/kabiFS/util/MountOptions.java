@@ -160,6 +160,12 @@ public class MountOptions {
 		mongoConn = new MongoConn(config.get("mongo"));
 	}
 	/**
+	 * @return mongodb conn config object
+	 */
+	public final MongoConn mongoConn(){
+		return mongoConn;
+	}
+	/**
 	 * @return mount mode
 	 */
 	public final MountMode mountMode() {

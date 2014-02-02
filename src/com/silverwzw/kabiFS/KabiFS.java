@@ -30,7 +30,11 @@ public class KabiFS extends FuseFilesystemAdapterFull {
 	private static final String metaDirName;
 	
 	public static interface DatastoreAdapter {
-		public Collection<ObjectId> getCommitSet();
+		/**
+		 * get the Commit list
+		 * @return collection of tuples, 1st item is ObjectId of commit, 2nd is name, 3rd is the ObjectId of base commit.
+		 */
+		public Collection<Util.Tuple<ObjectId, String, ObjectId>> getCommitList();
 		public KabiCommit getCommit();
 		public KabiCommit getCommit(String branch);
 		public KabiCommit getCommit(String branch, long timestamp);
@@ -76,9 +80,11 @@ public class KabiFS extends FuseFilesystemAdapterFull {
 	}
 
 	protected final MountOptions mntoptions;
+	protected final DatastoreAdapter db;
 	
 	public KabiFS(MountOptions options) {
 		this.mntoptions = options; 
+		db = new KabiDBAdapter(options.mongoConn());
 	}
 
 	/**
@@ -104,19 +110,26 @@ public class KabiFS extends FuseFilesystemAdapterFull {
 			Util.statMetaMode(stat, NodeType.DIRECTORY);
 			return 0;
 		}
-		if (path.equals(Util.buildPath(metaDirName, "mount_options.txt"))) {
+		if (path.equals(Util.buildPath(metaDirName, "mount_options"))) {
 			Util.statMetaMode(stat, NodeType.FILE);
 			stat.size(mntoptions.toMetaFile().length());
 			return 0;
 		}
-		if (path.equals(Util.buildPath(metaDirName, "fs_parameters.txt"))) {
+		if (path.equals(Util.buildPath(metaDirName, "fs_parameters"))) {
 			Util.statMetaMode(stat, NodeType.FILE);
-			stat.size("".length());
 			return 0;
 		}
-		if (path.equals(Util.buildPath(metaDirName, "commits.txt"))) {
+		if (path.equals(Util.buildPath(metaDirName, "commits"))) {
 			Util.statMetaMode(stat, NodeType.FILE);
-			stat.size("".length());
+			stat.size(Util.commitList2MetaFile(db.getCommitList()).length());
+			return 0;
+		}
+		if (path.equals(Util.buildPath(metaDirName, "kabi_console_out"))) {
+			Util.statMetaMode(stat, NodeType.FILE);
+			return 0;
+		}
+		if (path.equals(Util.buildPath(metaDirName, "kabi_console_in"))) {
+			stat.setMode(NodeType.FILE, false, true, false, false, false, false, false, false, false);
 			return 0;
 		}
 		return -ErrorCodes.ENOENT();
@@ -125,8 +138,11 @@ public class KabiFS extends FuseFilesystemAdapterFull {
 	@Override
 	public int read(final String path, final ByteBuffer buffer, final long size, final long offset, final FileInfoWrapper info)
 	{
-		if (path.equals(Util.buildPath(metaDirName, "mount_options.txt"))) {
+		if (path.equals(Util.buildPath(metaDirName, "mount_options"))) {
 			return Util.readString(mntoptions.toMetaFile(), buffer, size, offset);
+		}
+		if (path.equals(Util.buildPath(metaDirName, "commits"))) {
+			return Util.readString(Util.commitList2MetaFile(db.getCommitList()), buffer, size, offset);
 		}
 		return Util.readString("", buffer, size, offset);
 	}
@@ -138,9 +154,11 @@ public class KabiFS extends FuseFilesystemAdapterFull {
 			filler.add(metaDirName);
 		}
 		if (path.equals(Util.buildPath(metaDirName))) {
-			filler.add("commits.txt");
-			filler.add("fs_parameters.txt");
-			filler.add("mount_options.txt");
+			filler.add("commits");
+			filler.add("fs_parameters");
+			filler.add("mount_options");
+			filler.add("kabi_console_in");
+			filler.add("kabi_console_out");
 		}
 		return 0;
 	}
