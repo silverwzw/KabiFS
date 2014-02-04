@@ -6,11 +6,11 @@ import java.util.Arrays;
 
 import com.silverwzw.JSON.JSON;
 import com.silverwzw.JSON.JSON.JsonStringFormatException;
-import com.silverwzw.kabiFS.util.Util.MongoConn;
+import com.silverwzw.kabiFS.util.MongoConn;
 
 
 /**
- * This Object carries all options passed to KabiFS
+ * This Object will parse and carry all options passed to KabiFS
  * @author silverwzw
  */
 public class MountOptions {
@@ -79,7 +79,7 @@ public class MountOptions {
 	protected String newBranchName;
 	protected String[] fuseOptions;
 	protected String mountPoint;
-	protected Util.MongoConn mongoConn;
+	protected MongoConn mongoConn;
 	
 	// commit name 	= branch_name@unmount_time
 	// or 			= branch_name@
@@ -127,9 +127,9 @@ public class MountOptions {
 		if (config.get("base") != null) {
 			String base;
 			base = (String) config.get("base").toObject();
-			if (Util.branchNameCheck(base)) {
+			if (Helper.branchNameCheck(base)) {
 				base = base + "@";
-			} else if (!Util.commitNameCheck(base)) {
+			} else if (!Helper.commitNameCheck(base)) {
 				throw new ParseNameException();
 			}
 			baseCommitName = base;
@@ -140,7 +140,7 @@ public class MountOptions {
 		if (config.get("new") != null) {
 			String newB;
 			newB = (String) config.get("new").toObject();
-			if (!Util.branchNameCheck(newB)) {
+			if (!Helper.branchNameCheck(newB)) {
 				throw new ParseNameException();
 			}
 			newBranchName = newB;
@@ -194,7 +194,7 @@ public class MountOptions {
 	 * @return new branch name (if there's one specified, null otherwise)
 	 */
 	public final String newBranch() {
-		return newBranchName.equals("") ? Util.getBranchNameByCommitName(baseCommit()): newBranchName;
+		return newBranchName.equals("") ? Helper.getBranchNameByCommitName(baseCommit()): newBranchName;
 	}
 	/**
 	 * @return String representation of this instance, good for debug

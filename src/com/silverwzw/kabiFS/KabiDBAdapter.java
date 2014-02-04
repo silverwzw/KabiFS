@@ -4,24 +4,29 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
+import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
+import com.mongodb.DBCollection;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.Mongo;
 import com.mongodb.ServerAddress;
-import com.silverwzw.kabiFS.KabiFS.DatastoreAdapter;
-import com.silverwzw.kabiFS.structure.KabiCommit;
-import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
+import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
+import com.silverwzw.kabiFS.structure.Commit;
+import com.silverwzw.kabiFS.structure.Commit.NodeId;
 import com.silverwzw.kabiFS.structure.Node;
-import com.silverwzw.kabiFS.util.Util;
-import com.silverwzw.kabiFS.util.Util.MongoConn;
-import com.silverwzw.kabiFS.util.Util.ObjectNotFoundException;
+import com.silverwzw.kabiFS.util.Helper;
+import com.silverwzw.kabiFS.util.MongoConn;
+import com.silverwzw.kabiFS.util.Tuple;
+import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 
 public class KabiDBAdapter implements DatastoreAdapter {
 	
@@ -32,6 +37,22 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	}
 	
 	private DB db;
+	
+	public final class KabiCommit extends Commit {
+		protected KabiCommit(String branch, long timestamp, ObjectId id, ObjectId base, ObjectId root, Map<ObjectId, ObjectId> patches){
+			this.branch = branch;
+			this.timestamp = timestamp;
+			this.id = id;
+			this.basedOn = base;
+			this.root = root;
+			this.patches = patches;
+		}
+
+		public DatastoreAdapter db() {
+			return KabiDBAdapter.this;
+		}
+		
+	}
 	
 	public KabiDBAdapter(MongoConn connCFG) {
 		List<ServerAddress> servers;
@@ -47,14 +68,14 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	}
 
 	@Override
-	public final Collection<Util.Tuple<ObjectId, String, ObjectId>> getCommitList() {
+	public final Collection<Tuple<ObjectId, String, ObjectId>> getCommitList() {
 		if (!db.collectionExists("commit")) {
 			logger.error("connot find commit collection");
 		}
 		
-		Collection<Util.Tuple<ObjectId, String, ObjectId>> commitList;
+		Collection<Tuple<ObjectId, String, ObjectId>> commitList;
 		
-		commitList = new LinkedList<Util.Tuple<ObjectId, String, ObjectId>>();
+		commitList = new LinkedList<Tuple<ObjectId, String, ObjectId>>();
 		
 		DBCursor commitCur = db.getCollection("commit").find();
 		
@@ -63,11 +84,11 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			dbo = commitCur.next();
 			String branchName;
 			Date timestamp;
-			Util.Tuple<ObjectId, String, ObjectId> tuple;
-			tuple = new Util.Tuple<ObjectId, String, ObjectId>();
+			Tuple<ObjectId, String, ObjectId> tuple;
+			tuple = new Tuple<ObjectId, String, ObjectId>();
 			try {
-				branchName = Util.getObject(dbo, String.class, "name");
-				if (!Util.branchNameCheck(branchName)) {
+				branchName = Helper.getObject(dbo, String.class, "name");
+				if (!Helper.branchNameCheck(branchName)) {
 					throw new ObjectNotFoundException();
 				}
 			} catch (ObjectNotFoundException e) {
@@ -75,7 +96,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				continue;
 			}
 			try {
-				timestamp = Util.getObject(dbo, Date.class, "timestamp");
+				timestamp = Helper.getObject(dbo, Date.class, "timestamp");
 			} catch (ObjectNotFoundException e) {
 				logger.error("commit " + dbo.get("_id").toString() + " does not have timestamp (Date) field, use null");
 				timestamp = null;
@@ -83,43 +104,118 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			tuple.item1 = (ObjectId) dbo.get("_id");
 			tuple.item2 = branchName + (timestamp == null ? "@" : "@" + timestamp.getTime());
 			try {
-				tuple.item3 = Util.getObject(dbo, ObjectId.class, "base");
+				tuple.item3 = Helper.getObject(dbo, ObjectId.class, "base");
 			} catch (ObjectNotFoundException e) {
 				logger.error("commit " + dbo.get("_id").toString() + " does not have base (ObjectId) field, use null");
 				tuple.item3 = null;
 			}
 			commitList.add(tuple);
 		}
+		commitCur.close();
 		
 		return commitList;
 	}
 
-	@Override
-	public KabiCommit getCommit() {
-		// TODO Auto-generated method stub
-		return null;
+	@SuppressWarnings("resource")
+	public Commit getCommit(String commitName) {
+		String branchName;
+		long timestamp;
+		if (commitName == null) {
+			branchName = "MAIN";
+			timestamp = 0;
+		} else {
+			try {
+				if (!Helper.commitNameCheck(commitName)) {
+					throw new Exception();
+				}
+				String[] sa;
+				sa = commitName.split("@");
+				if (sa.length > 2 || sa.length < 1) {
+					throw new Exception();
+				}
+				branchName = sa[0];
+				if (!Helper.branchNameCheck(branchName)) {
+					throw new Exception();
+				}
+				if (sa.length == 1) {
+					timestamp = 0;
+				} else {
+					String tss;
+					tss = sa[1];
+					try {
+						timestamp = Long.parseLong(tss);
+					} catch (NumberFormatException ex) {
+						logger.error("commit timestamp parse error, use latest");
+						timestamp = 0;
+					}
+				}
+			} catch (Exception ex) {
+				if (ex instanceof RuntimeException) {
+					throw (RuntimeException) ex;
+				}
+				logger.error("commit name " + commitName + " not valid, use default commit");
+				branchName = "MAIN";
+				timestamp = 0;
+			}
+		}
+		
+		DBCursor cur;
+		DBObject query, commitObj;
+		DBCollection commitCollection;
+		
+		commitObj = null;
+		commitCollection = db.getCollection("commit");
+		
+		query = new BasicDBObject("timestamp", null);
+		cur = commitCollection.find(query);
+		if (cur.hasNext()) {
+			commitObj = cur.next();
+			commitObj.put("timestamp", new Date());
+			commitCollection.save(commitObj);
+		}
+		cur.close();
+		commitObj = null;
+		
+		if (timestamp != 0) {
+			query = new BasicDBObject("timestamp", new Date(timestamp)).append("name", branchName);
+			cur = commitCollection.find(query);
+			if (cur.hasNext()) {
+				commitObj = cur.next();
+			}
+			cur.close();
+		} else {
+			query = new BasicDBObject("name", branchName);
+			cur = commitCollection.find(query).sort(new BasicDBObject("timestamp", -1)).limit(1);
+			if (cur.hasNext()) {
+				commitObj = cur.next();
+			}
+			cur.close();
+		}
+		
+		Map<ObjectId, ObjectId> patches;
+		Object o;
+		List<?> patchList;
+		
+		patches = new HashMap<ObjectId, ObjectId>();
+		o = commitObj.get("patch");
+		if (o != null && o instanceof List<?>) {
+			patchList = (List<?>) commitObj.get("patch");
+			for (Object obj : patchList) {
+				if (obj instanceof DBObject) {
+					patches.put((ObjectId)((DBObject) obj).get("origin"), (ObjectId)((DBObject) obj).get("replace"));
+				}
+			}
+		}
+		
+		return new KabiCommit((String) commitObj.get("name"),
+				((Date) commitObj.get("timestamp")).getTime(),
+				(ObjectId) commitObj.get("_id"),
+				(ObjectId) commitObj.get("base"),
+				(ObjectId) commitObj.get("root"), patches);
 	}
-
+	
 	@Override
-	public KabiCommit getCommit(String branch) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public KabiCommit getCommit(String branch, long timestamp) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public KabiCommit getCommit(ObjectId oid) {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Node getNode(NodeId nid) {
+	public Node getNode(NodeId nid, Node.KabiNodeType type) {
 		// TODO Auto-generated method stub
 		return null;
 	}

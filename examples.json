@@ -10,6 +10,7 @@
 		"db" : "kabi"
 	},
 	"fuse" : [
-		"-oallow_other"
+		"-oallow_other",
+		"-omax_read=1"
 	]
 }

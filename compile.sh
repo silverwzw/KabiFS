@@ -2,4 +2,4 @@
 javac	-cp "./lib/*" \
 	-sourcepath ./src:./fuse-jna:./json \
 	-d ./bin \
-	./src/com/silverwzw/kabiFS/KabiFS.java
+	./src/com/silverwzw/kabiFS/Mount.java

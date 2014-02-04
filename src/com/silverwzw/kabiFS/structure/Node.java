@@ -1,10 +1,8 @@
 package com.silverwzw.kabiFS.structure;
 
 import org.apache.log4j.Logger;
-import org.bson.types.ObjectId;
 
-import com.silverwzw.kabiFS.structure.KabiCommit.NodeId;
-import com.silverwzw.kabiFS.util.Util;
+import com.silverwzw.kabiFS.structure.Commit.NodeId;
 
 public abstract class Node {
 	
@@ -16,25 +14,6 @@ public abstract class Node {
 	
 	protected NodeId nid;
 	protected int counter;
-	
-	public class KabiArc extends Arc {
-
-		public KabiArc(Node kabiNode) {
-			this.nid = kabiNode.id();
-		}
-		
-		public KabiArc(NodeId nid) {
-			this.nid = nid;
-		}
-		
-		public final Node parentNode() {
-			return Node.this;
-		}
-		
-		public final Node childNode() {
-			return null;//Util.Nodes.reflect(nid); 
-		}
-	}
 	
 	public final NodeId id(){
 		return nid;
@@ -55,5 +34,5 @@ public abstract class Node {
 
 	public abstract KabiNodeType type();
 	
-	public abstract KabiCommit commit();
+	public abstract Commit commit();
 }

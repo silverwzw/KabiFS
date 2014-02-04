@@ -5,15 +5,18 @@ import java.util.Map;
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
+import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 
-public class KabiCommit {
+
+public abstract class Commit {
 	
 	@SuppressWarnings("serial")
 	public static class CommitNotFoundException extends Exception {};
+	@SuppressWarnings("unused")
 	private final static Logger logger;
 	
 	static {
-		logger = Logger.getLogger(KabiCommit.class);
+		logger = Logger.getLogger(Commit.class);
 	}
 	
 	protected String branch;
@@ -29,7 +32,7 @@ public class KabiCommit {
 	 */
 	public final class NodeId implements Comparable<NodeId> {
 		private ObjectId objId;
-		public NodeId(ObjectId objId) {
+		protected NodeId(ObjectId objId) {
 			this.objId = patches.get(objId);
 			if (this.objId == null) {
 				this.objId = objId; 
@@ -54,16 +57,16 @@ public class KabiCommit {
 	}
 	
 	public abstract class KabiNode extends Node {
-		KabiNode(ObjectId oid) {
+		protected KabiNode(ObjectId oid) {
 			this.nid = new NodeId(oid);
 		}
-		KabiNode(NodeId nid) {
+		protected KabiNode(NodeId nid) {
 			this.nid = nid;
 		}
-		public final KabiCommit commit() {
-			return KabiCommit.this;
+		public final Commit commit() {
+			return Commit.this;
 		}
 	}
 	
-	
+	public abstract DatastoreAdapter db();
 }
