@@ -23,7 +23,6 @@ import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.Commit;
 
-import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
 import com.silverwzw.kabiFS.util.Tuple3;
@@ -48,12 +47,13 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		}
 
 		public KabiDirectoryNode root() {
-			return (KabiDirectoryNode) KabiDBAdapter.this.getNode(new NodeId(null).oid());
+			return new KabiDirectoryNode(new NodeId(null));
 		}
 		
 		public DatastoreAdapter datastore() {
 			return KabiDBAdapter.this;
 		}
+		
 	}
 	
 
@@ -266,10 +266,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	public void deleteCommit(ObjectId commit) {
 		db.getCollection("commit").remove(new BasicDBObject("_id", commit));
 		//TODO : release nodes
-	}
-	
-	public Node getNode(ObjectId oid) {
-		return null;
 	}
 	
 	public final DB db() {

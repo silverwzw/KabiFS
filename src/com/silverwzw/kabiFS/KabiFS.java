@@ -1,19 +1,22 @@
 package com.silverwzw.kabiFS;
 
+import java.io.File;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
 import com.silverwzw.kabiFS.structure.Commit;
+import com.silverwzw.kabiFS.structure.Commit.KabiDirectoryNode;
+import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.structure.Commit.NodeId;
 import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Helper;
+import com.silverwzw.kabiFS.util.Path2NodeCache;
+import com.silverwzw.kabiFS.util.Tuple2;
 
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
@@ -31,10 +34,10 @@ public class KabiFS extends MetaFS {
 	}
 
 	protected final Commit writtingCommit, baseCommit;
-	protected final Map<String, ObjectId> path2nodeCache;
+	protected final Path2NodeCache path2nodeCache;
 	
 	{
-		path2nodeCache = new HashMap<String, ObjectId>();
+		path2nodeCache = new Path2NodeCache(100);
 	}
 	
 	public KabiFS(MountOptions options) {
@@ -45,7 +48,49 @@ public class KabiFS extends MetaFS {
 	}
 	
 	protected boolean nodeIsDirectory(NodeId nid) {
-		return datastore.db().getCollection(Node.nodeType2CollectionName(KabiNodeType.DIRECTORY)).find(new BasicDBObject("_id", nid.oid())).hasNext();
+			return datastore.db().getCollection(Node.nodeType2CollectionName(KabiNodeType.DIRECTORY)).find(new BasicDBObject("_id", nid.oid())).hasNext();
+	}
+	
+	protected NodeId findNodeByPath(String path){
+
+		NodeId nid;
+		
+		nid = path2nodeCache.get(path);
+		
+		if (nid != null) {
+			return nid;
+		}
+
+		nid = baseCommit.root().id();
+		if (path.equals(Helper.buildPath())) {
+			path2nodeCache.put(path, nid);
+			return nid;
+		}
+		
+		String[] comps;
+		comps = path.split(File.separator);
+		
+		
+		for (int i = 1; i < comps.length; i++) {
+			if (!nodeIsDirectory(nid)) {
+				return null;
+			}
+			KabiDirectoryNode dnode;
+			dnode = baseCommit.new KabiDirectoryNode(nid);
+			nid = null;
+			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
+				if (sub.item2.equals(comps[i])) {
+					nid = baseCommit.new NodeId(sub.item1);
+					break;
+				}
+			}
+			if (nid == null) {
+				return null;
+			}
+		}
+		
+		path2nodeCache.put(path, nid);
+		return nid;
 	}
 	
 	@Override
@@ -58,7 +103,20 @@ public class KabiFS extends MetaFS {
 		if (super.getattr(path, stat) >= 0) {
 			return 0;
 		}
-		return -ErrorCodes.ENOENT();
+		
+		NodeId nid;
+		nid = findNodeByPath(path);
+		if (nid == null) {
+			return -ErrorCodes.ENOENT();
+		}
+		KabiNoneDataNode ndnode; 
+		if (nodeIsDirectory(nid)) {
+			ndnode = baseCommit.new KabiDirectoryNode(nid);
+		} else {
+			ndnode = baseCommit.new KabiFileNode(nid);
+		}
+		Helper.setMode(stat, ndnode);
+		return 0;
 	}
 
 	@Override
@@ -80,6 +138,14 @@ public class KabiFS extends MetaFS {
 		}
 		if (super.readdir(path, filler) >= 0) {
 			return 0;
+		}
+		NodeId nid;
+		nid = findNodeByPath(path);
+		if (nid == null || !nodeIsDirectory(nid)) {
+			return -ErrorCodes.ENOENT();
+		}
+		for (Tuple2<ObjectId, String> sub : baseCommit.new KabiDirectoryNode(nid).subNodes()) {
+			filler.add(sub.item2);
 		}
 		return 0;
 	}

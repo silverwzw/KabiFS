@@ -30,7 +30,7 @@ public abstract class Node {
 	{
 		counter = -1;
 	}
-	protected Node(ObjectId oid) {
+	protected void init(ObjectId oid) {
 		dbo = this.commit().datastore().db().getCollection(nodeType2CollectionName(type)).findOne(new BasicDBObject("_id", oid));
 	}
 	

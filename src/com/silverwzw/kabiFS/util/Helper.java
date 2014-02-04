@@ -5,10 +5,15 @@ import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.regex.Pattern;
 
+import net.fusejna.StructStat.StatWrapper;
+import net.fusejna.types.TypeMode.NodeType;
+
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DBObject;
+import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
+import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
 
 
 /**
@@ -122,10 +127,24 @@ public final class Helper {
 		}
 		return content;
 	}
-	/**
-	 * parse the path
-	 */
-	public final static String[] parsePath(String path) {
-		return path.split(File.separator);
+	public final static void setMode(final StatWrapper stat, KabiNoneDataNode node) {
+		int mode;
+		mode = node.mode();
+		
+		stat.setMode(
+				(node.type() == KabiNodeType.DIRECTORY ? NodeType.DIRECTORY : NodeType.FILE),
+				(mode & 0400) != 0,
+				(mode & 0200) != 0,
+				(mode & 0100) != 0,
+				(mode & 040) != 0, 
+				(mode & 020) != 0,
+				(mode & 010) != 0,
+				(mode & 04) != 0, 
+				(mode & 02) != 0,
+				(mode & 01) != 0
+			);
+		
+		stat.gid(node.gid());
+		stat.uid(node.uid());
 	}
 }

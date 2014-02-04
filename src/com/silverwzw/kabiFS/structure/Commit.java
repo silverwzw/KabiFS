@@ -29,6 +29,8 @@ public abstract class Commit {
 	protected ObjectId id;
 	protected Map<ObjectId, ObjectId> patches;
 	
+	public abstract KabiDirectoryNode root();
+	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
 	 * @author silverwzw
@@ -59,9 +61,8 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNode extends Node {
+	public abstract class KabiNode extends Node {
 		protected KabiNode(NodeId nid) {
-			super(nid.oid());
 			this.nid = nid;
 		}
 		public final Commit commit() {
@@ -69,7 +70,7 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNoneDataNode extends KabiNode {
+	public abstract class KabiNoneDataNode extends KabiNode {
 		protected long uid, gid;
 		protected int mode;
 		
@@ -109,6 +110,7 @@ public abstract class Commit {
 		}
 		public KabiDirectoryNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
 		public Collection<Tuple2<ObjectId, String>> subNodes() {
 			if (subNodes == null) {
@@ -139,6 +141,7 @@ public abstract class Commit {
 		}
 		public KabiFileNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
 		public Collection<Tuple2<ObjectId, Long>> subNodes() {
 			if (subNodes == null) {
@@ -169,6 +172,7 @@ public abstract class Commit {
 		}
 		protected KabiSubNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
 		public final String data(){
 			if (data == null) {
