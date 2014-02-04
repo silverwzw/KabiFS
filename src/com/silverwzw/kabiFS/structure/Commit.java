@@ -29,6 +29,8 @@ public abstract class Commit {
 	protected ObjectId id;
 	protected Map<ObjectId, ObjectId> patches;
 	
+	public abstract KabiDirectoryNode root();
+	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
 	 * @author silverwzw
@@ -59,9 +61,8 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNode extends Node {
+	public abstract class KabiNode extends Node {
 		protected KabiNode(NodeId nid) {
-			super(nid.oid());
 			this.nid = nid;
 		}
 		public final Commit commit() {
@@ -69,7 +70,7 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNoneDataNode extends KabiNode {
+	public abstract class KabiNoneDataNode extends KabiNode {
 		protected long uid, gid;
 		protected int mode;
 		
@@ -109,6 +110,7 @@ public abstract class Commit {
 		}
 		public KabiDirectoryNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
 		public Collection<Tuple2<ObjectId, String>> subNodes() {
 			if (subNodes == null) {
@@ -132,15 +134,18 @@ public abstract class Commit {
 	}
 	
 	public final class KabiFileNode extends KabiNoneDataNode {
-		private Collection<Tuple2<ObjectId, Long>> subNodes;
+		private LinkedList<Tuple2<ObjectId, Long>> subNodes;
+		private long size;
 		{
 			type = KabiNodeType.FILE;
 			subNodes = null;
+			size = -1;
 		}
 		public KabiFileNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
-		public Collection<Tuple2<ObjectId, Long>> subNodes() {
+		public LinkedList<Tuple2<ObjectId, Long>> subNodes() {
 			if (subNodes == null) {
 				List<?> arc;
 				arc = (List<?>) dbo.get("arc");
@@ -159,6 +164,12 @@ public abstract class Commit {
 			}
 			return subNodes;
 		}
+		public long size() {
+			if (size < 0) {
+				size = subNodes().peekLast().item2;
+			}
+			return size;
+		}
 	}
 	
 	public final class KabiSubNode extends KabiNode {
@@ -167,8 +178,9 @@ public abstract class Commit {
 			data = null;
 			type = KabiNodeType.SUB;
 		}
-		protected KabiSubNode(NodeId nid) {
+		public KabiSubNode(NodeId nid) {
 			super(nid);
+			init(nid.oid());
 		}
 		public final String data(){
 			if (data == null) {
