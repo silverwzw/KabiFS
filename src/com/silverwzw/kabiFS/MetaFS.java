@@ -7,11 +7,10 @@ import java.util.Collection;
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
+import com.mongodb.DB;
 import com.silverwzw.kabiFS.structure.Commit;
-import com.silverwzw.kabiFS.structure.Node;
-import com.silverwzw.kabiFS.structure.Commit.NodeId;
 import com.silverwzw.kabiFS.util.MountOptions;
-import com.silverwzw.kabiFS.util.Tuple;
+import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper;
 
 import net.fusejna.DirectoryFiller;
@@ -27,7 +26,7 @@ import net.fusejna.XattrListFiller;
 import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
-public class MetaFS extends FuseFilesystem {
+public abstract class MetaFS extends FuseFilesystem {
 	
 	@SuppressWarnings("unused")
 	private static final Logger logger;
@@ -38,9 +37,24 @@ public class MetaFS extends FuseFilesystem {
 		 * get the Commit list
 		 * @return collection of tuples, 1st item is ObjectId of commit, 2nd is name, 3rd is the ObjectId of base commit.
 		 */
-		public Collection<Tuple<ObjectId, String, ObjectId>> getCommitList();
+		public Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList();
+		/**
+		 * get the commit object by commit name
+		 * @param commitName not necessary the full name
+		 * @return the Commit Object
+		 */
 		public Commit getCommit(String commitName);
-		public Node getNode(NodeId nid, Node.KabiNodeType type);
+		/**
+		 * fix commit names like 'branch@' in db
+		 * delete "SHADOW" commit
+		 */
+		public void initFix();
+		/**
+		 * delete a commit
+		 * @param commitName the FULL name of the commit
+		 */
+		public void deleteCommit(ObjectId commitName);
+		public DB db();
 	}
 	
 	static {
@@ -50,15 +64,11 @@ public class MetaFS extends FuseFilesystem {
 	
 
 	protected final MountOptions mntoptions;
-	protected final DatastoreAdapter db;
-	protected final Commit workingCommit, baseCommit;
+	protected final DatastoreAdapter datastore;
 	
 	public MetaFS(MountOptions options) {
 		this.mntoptions = options; 
-		db = new KabiDBAdapter(options.mongoConn());
-		workingCommit = db.getCommit(options.baseCommit());
-		//TODO : assign base commit
-		baseCommit = null;
+		datastore = new KabiDBAdapter(options.mongoConn());
 	}
 	
 	@Override
@@ -168,7 +178,7 @@ public class MetaFS extends FuseFilesystem {
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "commits"))) {
 			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
-			stat.size(Helper.commitList2MetaFile(db.getCommitList()).length());
+			stat.size(Helper.commitList2MetaFile(datastore.getCommitList()).length());
 			stat.uid(getFuseContextUid().intValue());
 			stat.gid(getFuseContextGid().intValue());
 			return 0;
@@ -208,11 +218,7 @@ public class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.ENOSYS();
 	}
 
-	@Override
-	public void init() {
-		// TODO Auto-generated method stub
-		
-	}
+	public void init() {}
 
 	@Override
 	public int link(String path, String target) {
@@ -263,7 +269,7 @@ public class MetaFS extends FuseFilesystem {
 			return Helper.readString(mntoptions.toMetaFile(), buffer, size, offset);
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "commits"))) {
-			return Helper.readString(Helper.commitList2MetaFile(db.getCommitList()), buffer, size, offset);
+			return Helper.readString(Helper.commitList2MetaFile(datastore.getCommitList()), buffer, size, offset);
 		}
 		return -1;
 	}

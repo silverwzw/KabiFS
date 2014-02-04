@@ -5,7 +5,6 @@ import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.regex.Pattern;
 
-
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
@@ -20,6 +19,7 @@ import com.mongodb.DBObject;
 public final class Helper {
 
 	private static final Pattern commitNamePattern, branchNamePattern;
+	@SuppressWarnings("unused")
 	private static final Logger logger;
 	
 	static {
@@ -114,10 +114,10 @@ public final class Helper {
 	/**
 	 * transform CommitList to meta file String
 	 */
-	public final static String commitList2MetaFile(Collection<Tuple<ObjectId, String, ObjectId>> list) {
+	public final static String commitList2MetaFile(Collection<Tuple3<ObjectId, String, ObjectId>> list) {
 		String content;
 		content = "#ObjectId\tName\tbase\n";
-		for (Tuple<ObjectId, String, ObjectId> entry : list) {
+		for (Tuple3<ObjectId, String, ObjectId> entry : list) {
 			content += entry.item1.toString() + '\t' + entry.item2 + '\t' + (entry.item3 == null ? "null" : entry.item3.toString()) + '\n';
 		}
 		return content;

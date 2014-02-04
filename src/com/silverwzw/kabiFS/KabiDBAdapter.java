@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
@@ -21,11 +22,11 @@ import com.mongodb.Mongo;
 import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.Commit;
-import com.silverwzw.kabiFS.structure.Commit.NodeId;
+
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
-import com.silverwzw.kabiFS.util.Tuple;
+import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 
 public class KabiDBAdapter implements DatastoreAdapter {
@@ -38,21 +39,24 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	
 	private DB db;
 	
-	public final class KabiCommit extends Commit {
-		protected KabiCommit(String branch, long timestamp, ObjectId id, ObjectId base, ObjectId root, Map<ObjectId, ObjectId> patches){
+	public final class KabiReadingCommit extends Commit {
+		protected KabiReadingCommit(String branch, long timestamp, ObjectId id, ObjectId root, Map<ObjectId, ObjectId> patches){
 			this.branch = branch;
 			this.timestamp = timestamp;
 			this.id = id;
-			this.basedOn = base;
-			this.root = root;
 			this.patches = patches;
 		}
 
-		public DatastoreAdapter db() {
-			return KabiDBAdapter.this;
+		public KabiDirectoryNode root() {
+			return (KabiDirectoryNode) KabiDBAdapter.this.getNode(new NodeId(null).oid());
 		}
 		
+		public DatastoreAdapter datastore() {
+			return KabiDBAdapter.this;
+		}
 	}
+	
+
 	
 	public KabiDBAdapter(MongoConn connCFG) {
 		List<ServerAddress> servers;
@@ -68,14 +72,14 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	}
 
 	@Override
-	public final Collection<Tuple<ObjectId, String, ObjectId>> getCommitList() {
+	public final Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList() {
 		if (!db.collectionExists("commit")) {
 			logger.error("connot find commit collection");
 		}
 		
-		Collection<Tuple<ObjectId, String, ObjectId>> commitList;
+		Collection<Tuple3<ObjectId, String, ObjectId>> commitList;
 		
-		commitList = new LinkedList<Tuple<ObjectId, String, ObjectId>>();
+		commitList = new LinkedList<Tuple3<ObjectId, String, ObjectId>>();
 		
 		DBCursor commitCur = db.getCollection("commit").find();
 		
@@ -84,8 +88,8 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			dbo = commitCur.next();
 			String branchName;
 			Date timestamp;
-			Tuple<ObjectId, String, ObjectId> tuple;
-			tuple = new Tuple<ObjectId, String, ObjectId>();
+			Tuple3<ObjectId, String, ObjectId> tuple;
+			tuple = new Tuple3<ObjectId, String, ObjectId>();
 			try {
 				branchName = Helper.getObject(dbo, String.class, "name");
 				if (!Helper.branchNameCheck(branchName)) {
@@ -116,7 +120,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		return commitList;
 	}
 
-	@SuppressWarnings("resource")
 	public Commit getCommit(String commitName) {
 		String branchName;
 		long timestamp;
@@ -160,11 +163,93 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		}
 		
 		DBCursor cur;
+		DBObject query, commitDBObj;
+		DBCollection commitCollection;
+		
+		commitCollection = db.getCollection("commit");
+		commitDBObj = null;
+		
+		if (timestamp != 0) {
+			query = new BasicDBObject("timestamp", new Date(timestamp)).append("name", branchName);
+			cur = commitCollection.find(query);
+			if (cur.hasNext()) {
+				commitDBObj = cur.next();
+			}
+			cur.close();
+		} else {
+			query = new BasicDBObject("name", branchName);
+			cur = commitCollection.find(query).sort(new BasicDBObject("timestamp", -1)).limit(1);
+			if (cur.hasNext()) {
+				commitDBObj = cur.next();
+			}
+			cur.close();
+		}
+		
+		
+		return new KabiReadingCommit((String) commitDBObj.get("name"),
+				((Date) commitDBObj.get("timestamp")).getTime(),
+				(ObjectId) commitDBObj.get("_id"),
+				(ObjectId) commitDBObj.get("root"),
+				getPatches(commitDBObj));
+	}
+	
+	private Map<ObjectId, ObjectId> getPatches(DBObject commitDBObj) {
+		Map<ObjectId, ObjectId> patches, patchesBase;
+		DBObject baseCommitDBObj;
+		ObjectId baseCommitOid;
+		Object o;
+		List<?> patchList;
+		
+		patches = new HashMap<ObjectId, ObjectId>();
+		
+		o = commitDBObj.get("patch");
+		if (o != null && o instanceof List<?>) {
+			patchList = (List<?>) commitDBObj.get("patch");
+			for (Object obj : patchList) {
+				if (obj instanceof DBObject) {
+					patches.put((ObjectId)((DBObject) obj).get("origin"), (ObjectId)((DBObject) obj).get("replace"));
+				}
+			}
+		}
+		
+		baseCommitOid = (ObjectId) commitDBObj.get("base");
+		if (baseCommitOid == null) {
+			patches.put(null, (ObjectId) commitDBObj.get("root"));
+			return patches;
+		}
+		baseCommitDBObj = db.getCollection("commit").findOne(new BasicDBObject("_id", baseCommitOid));
+		patchesBase = this.getPatches(baseCommitDBObj);
+		
+		for (ObjectId origin : patchesBase.keySet()) {
+			ObjectId replace;
+			replace = patchesBase.get(origin);
+			if (patches.containsKey(replace)) {
+				patchesBase.put(origin, patches.get(replace));
+				patches.remove(replace);
+			}
+		}
+		
+		for (Entry<ObjectId, ObjectId> en : patches.entrySet()) {
+			patchesBase.put(en.getKey(), en.getValue());
+		}
+		
+		return patchesBase;
+	}
+	
+	public void initFix(){
+
+		
+		DBCursor cur;
 		DBObject query, commitObj;
 		DBCollection commitCollection;
 		
-		commitObj = null;
 		commitCollection = db.getCollection("commit");
+		
+		cur = commitCollection.find(new BasicDBObject("name", "SHADOW"));
+		while (cur.hasNext()) {
+			deleteCommit((ObjectId)cur.next().get("_id"));
+		}
+		cur.close();
 		
 		query = new BasicDBObject("timestamp", null);
 		cur = commitCollection.find(query);
@@ -174,49 +259,20 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			commitCollection.save(commitObj);
 		}
 		cur.close();
-		commitObj = null;
 		
-		if (timestamp != 0) {
-			query = new BasicDBObject("timestamp", new Date(timestamp)).append("name", branchName);
-			cur = commitCollection.find(query);
-			if (cur.hasNext()) {
-				commitObj = cur.next();
-			}
-			cur.close();
-		} else {
-			query = new BasicDBObject("name", branchName);
-			cur = commitCollection.find(query).sort(new BasicDBObject("timestamp", -1)).limit(1);
-			if (cur.hasNext()) {
-				commitObj = cur.next();
-			}
-			cur.close();
-		}
-		
-		Map<ObjectId, ObjectId> patches;
-		Object o;
-		List<?> patchList;
-		
-		patches = new HashMap<ObjectId, ObjectId>();
-		o = commitObj.get("patch");
-		if (o != null && o instanceof List<?>) {
-			patchList = (List<?>) commitObj.get("patch");
-			for (Object obj : patchList) {
-				if (obj instanceof DBObject) {
-					patches.put((ObjectId)((DBObject) obj).get("origin"), (ObjectId)((DBObject) obj).get("replace"));
-				}
-			}
-		}
-		
-		return new KabiCommit((String) commitObj.get("name"),
-				((Date) commitObj.get("timestamp")).getTime(),
-				(ObjectId) commitObj.get("_id"),
-				(ObjectId) commitObj.get("base"),
-				(ObjectId) commitObj.get("root"), patches);
+	}
+
+	@Override
+	public void deleteCommit(ObjectId commit) {
+		db.getCollection("commit").remove(new BasicDBObject("_id", commit));
+		//TODO : release nodes
 	}
 	
-	@Override
-	public Node getNode(NodeId nid, Node.KabiNodeType type) {
-		// TODO Auto-generated method stub
+	public Node getNode(ObjectId oid) {
 		return null;
+	}
+	
+	public final DB db() {
+		return db;
 	}
 }
