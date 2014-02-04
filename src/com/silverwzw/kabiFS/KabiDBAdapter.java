@@ -23,7 +23,6 @@ import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.Commit;
 
-import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
 import com.silverwzw.kabiFS.util.Tuple3;
@@ -39,8 +38,12 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	
 	private DB db;
 	
-	public final class KabiReadingCommit extends Commit {
-		protected KabiReadingCommit(String branch, long timestamp, ObjectId id, ObjectId root, Map<ObjectId, ObjectId> patches){
+	public final class KabiCommit extends Commit {
+		
+		protected ObjectId id;
+		protected Map<ObjectId, ObjectId> patches;
+		
+		protected KabiCommit(String branch, long timestamp, ObjectId id, ObjectId root, Map<ObjectId, ObjectId> patches){
 			this.branch = branch;
 			this.timestamp = timestamp;
 			this.id = id;
@@ -48,11 +51,22 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		}
 
 		public KabiDirectoryNode root() {
-			return (KabiDirectoryNode) KabiDBAdapter.this.getNode(new NodeId(null).oid());
+			return new KabiDirectoryNode(new NodeId(null));
 		}
 		
-		public DatastoreAdapter datastore() {
+		public final DatastoreAdapter datastore() {
 			return KabiDBAdapter.this;
+		}
+
+		public final ObjectId getActualOid(ObjectId oid) {
+			ObjectId objId;
+			objId = patches.get(oid);
+			return (objId == null) ? oid : objId;
+		}
+		
+		protected final DBObject dbo() {
+			//TODO:
+			return null;
 		}
 	}
 	
@@ -186,7 +200,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		}
 		
 		
-		return new KabiReadingCommit((String) commitDBObj.get("name"),
+		return new KabiCommit((String) commitDBObj.get("name"),
 				((Date) commitDBObj.get("timestamp")).getTime(),
 				(ObjectId) commitDBObj.get("_id"),
 				(ObjectId) commitDBObj.get("root"),
@@ -266,10 +280,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	public void deleteCommit(ObjectId commit) {
 		db.getCollection("commit").remove(new BasicDBObject("_id", commit));
 		//TODO : release nodes
-	}
-	
-	public Node getNode(ObjectId oid) {
-		return null;
 	}
 	
 	public final DB db() {

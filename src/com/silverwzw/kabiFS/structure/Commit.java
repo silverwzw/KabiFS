@@ -3,9 +3,9 @@ package com.silverwzw.kabiFS.structure;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.log4j.Logger;
+import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DBObject;
@@ -26,8 +26,11 @@ public abstract class Commit {
 	
 	protected String branch;
 	protected long timestamp;
-	protected ObjectId id;
-	protected Map<ObjectId, ObjectId> patches;
+	
+	public abstract KabiDirectoryNode root();
+	public abstract ObjectId getActualOid(ObjectId oid);
+	public abstract DatastoreAdapter datastore();
+	protected abstract DBObject dbo();
 	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
@@ -35,14 +38,11 @@ public abstract class Commit {
 	 */
 	public final class NodeId implements Comparable<NodeId> {
 		private ObjectId objId;
-		public NodeId(ObjectId objId) {
-			this.objId = patches.get(objId);
-			if (this.objId == null) {
-				this.objId = objId; 
-			}
+		public NodeId(ObjectId oid) {
+			objId = getActualOid(oid);
 		}
-		public final int compareTo(NodeId nodeId) {
-			return objId.compareTo(nodeId.objId);
+		public final int compareTo(NodeId extnodeId) {
+			return objId.compareTo(extnodeId.objId);
 		}
 		/**
 		 * get the object id wrapped in node id
@@ -59,9 +59,8 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNode extends Node {
+	public abstract class KabiNode extends Node {
 		protected KabiNode(NodeId nid) {
-			super(nid.oid());
 			this.nid = nid;
 		}
 		public final Commit commit() {
@@ -69,7 +68,7 @@ public abstract class Commit {
 		}
 	}
 	
-	private abstract class KabiNoneDataNode extends KabiNode {
+	public abstract class KabiNoneDataNode extends KabiNode {
 		protected long uid, gid;
 		protected int mode;
 		
@@ -83,19 +82,19 @@ public abstract class Commit {
 		}
 		public final long uid() {
 			if (uid < 0) {
-				uid = ((Number)dbo.get("owner")).longValue();
+				uid = ((Number) super.dbo().get("owner")).longValue();
 			}
 			return uid;
 		}
 		public final long gid() {
 			if (gid < 0) {
-				gid = ((Number)dbo.get("gowner")).longValue();
+				gid = ((Number) super.dbo().get("gowner")).longValue();
 			}
 			return gid;
 		}
 		public final int mode() {
 			if (mode < 0) {
-				mode = ((Number) dbo.get("mode")).intValue();
+				mode = ((Number) super.dbo().get("mode")).intValue();
 			}
 			return mode;
 		}
@@ -113,7 +112,7 @@ public abstract class Commit {
 		public Collection<Tuple2<ObjectId, String>> subNodes() {
 			if (subNodes == null) {
 				List<?> arc;
-				arc = (List<?>) dbo.get("arc");
+				arc = (List<?>) super.dbo().get("arc");
 				subNodes = new LinkedList<Tuple2<ObjectId, String>>();
 				if (arc != null) {
 					for (Object o : arc) {
@@ -132,18 +131,20 @@ public abstract class Commit {
 	}
 	
 	public final class KabiFileNode extends KabiNoneDataNode {
-		private Collection<Tuple2<ObjectId, Long>> subNodes;
+		private LinkedList<Tuple2<ObjectId, Long>> subNodes;
+		private long size;
 		{
 			type = KabiNodeType.FILE;
 			subNodes = null;
+			size = -1;
 		}
 		public KabiFileNode(NodeId nid) {
 			super(nid);
 		}
-		public Collection<Tuple2<ObjectId, Long>> subNodes() {
+		public LinkedList<Tuple2<ObjectId, Long>> subNodes() {
 			if (subNodes == null) {
 				List<?> arc;
-				arc = (List<?>) dbo.get("arc");
+				arc = (List<?>) super.dbo().get("arc");
 				subNodes = new LinkedList<Tuple2<ObjectId, Long>>();
 				if (arc != null) {
 					for (Object o : arc) {
@@ -159,25 +160,38 @@ public abstract class Commit {
 			}
 			return subNodes;
 		}
+		public long size() {
+			if (size < 0) {
+				size = subNodes().peekLast().item2;
+			}
+			return size;
+		}
 	}
 	
 	public final class KabiSubNode extends KabiNode {
-		private String data;
+		private byte[] data;
 		{
 			data = null;
 			type = KabiNodeType.SUB;
 		}
-		protected KabiSubNode(NodeId nid) {
+		public KabiSubNode(NodeId nid) {
 			super(nid);
 		}
-		public final String data(){
+		public final byte[] data(){
 			if (data == null) {
-				data = (String) dbo.get("data");
+				Object o;
+				o = super.dbo().get("data");
+				if (o instanceof Binary) {
+					data = ((Binary) o).getData();
+				} else if (o instanceof String) {
+					data = ((String) o).getBytes();
+				} else {
+					data = new byte[0];
+				}
 			}
 			return data;
 		}
 		
 	}
 	
-	public abstract DatastoreAdapter datastore();
 }

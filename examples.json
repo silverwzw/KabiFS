@@ -1,6 +1,6 @@
 {
 	"mode" : "LOG",
-	"base" : "MAIN",
+	"base" : "MAIN@1391413992008",
 	"mongo" : {
 		"servers" : [
 			{

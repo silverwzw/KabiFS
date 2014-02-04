@@ -23,15 +23,20 @@ public abstract class Node {
 	}
 	
 	protected NodeId nid;
-	protected DBObject dbo;
+	private DBObject dbo;
 	protected int counter;
 	protected KabiNodeType type;
 	
 	{
 		counter = -1;
+		dbo = null;
 	}
-	protected Node(ObjectId oid) {
-		dbo = this.commit().datastore().db().getCollection(nodeType2CollectionName(type)).findOne(new BasicDBObject("_id", oid));
+	
+	protected final DBObject dbo() {
+		if (dbo == null) {
+			dbo = this.commit().datastore().db().getCollection(nodeType2CollectionName(type)).findOne(new BasicDBObject("_id", nid.oid()));
+		}
+		return dbo;
 	}
 	
 	public final NodeId id(){
