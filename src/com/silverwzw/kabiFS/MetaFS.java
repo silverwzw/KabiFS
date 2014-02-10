@@ -45,16 +45,19 @@ public abstract class MetaFS extends FuseFilesystem {
 		 */
 		public Commit getCommit(String commitName);
 		/**
-		 * fix commit names like 'branch@' in db
-		 * delete "SHADOW" commit
-		 */
-		public void initFix();
-		/**
 		 * delete a commit
 		 * @param commitName the FULL name of the commit
 		 */
 		public void deleteCommit(ObjectId commitName);
+		/**
+		 * return the db reference
+		 * @return DB
+		 */
 		public DB db();
+		/**
+		 * initiate the File System (will earse everything)
+		 */
+		public void initFS();
 	}
 	
 	static {

@@ -45,7 +45,7 @@ public abstract class Node {
 	
 	public final int counter() {
 		if (counter < 0) {
-			counter = (Integer) dbo.get("counter");
+			counter = (Integer) dbo().get("counter");
 		}
 		return counter;
 	}

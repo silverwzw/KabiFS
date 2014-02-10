@@ -8,7 +8,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
@@ -38,19 +37,51 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	
 	private DB db;
 	
-	public final class KabiCommit extends Commit {
+	public final class KabiPersistentCommit extends Commit {
 		
-		protected ObjectId id;
-		protected Map<ObjectId, ObjectId> patches;
+		protected final ObjectId id;
+		protected final Map<ObjectId, ObjectId> patches;
+		private final DBObject dbo;
+
+		{
+			patches = new HashMap<ObjectId, ObjectId>();
+		}
 		
-		protected KabiCommit(String branch, long timestamp, ObjectId id, ObjectId root, Map<ObjectId, ObjectId> patches){
-			this.branch = branch;
-			this.timestamp = timestamp;
-			this.id = id;
-			this.patches = patches;
+		protected KabiPersistentCommit(DBObject dbo){
+			this.dbo = dbo;
+			id = (ObjectId) dbo.get("_id");
+			branch = (String) dbo.get("name");
+			timestamp = ((Date) dbo.get("timestamp")).getTime();
+			
+			DBObject baseCommitDBObj;
+			ObjectId baseCommitOid;
+			List<?> patchList;
+			
+			baseCommitDBObj = dbo; 
+
+			while (baseCommitDBObj != null) {
+				patchList = (List<?>) dbo.get("patch");
+				for (Object obj : patchList) {
+					ObjectId origin, replace;
+					origin = (ObjectId)((DBObject) obj).get("origin");
+					replace = (ObjectId)((DBObject) obj).get("replace");
+					if (patches.containsKey(replace)) {
+						patches.put(origin, patches.remove(replace));
+					} else {
+						patches.put(origin, replace);
+					}
+				}
+				baseCommitOid = (ObjectId) dbo.get("base");
+				if (baseCommitOid == null) {
+					patches.put(null, (ObjectId) dbo.get("root"));
+					return;
+				} else {
+					baseCommitDBObj = KabiDBAdapter.this.db().getCollection("commit").findOne(new BasicDBObject("_id", baseCommitOid));
+				}
+			}
 		}
 
-		public KabiDirectoryNode root() {
+		public final KabiDirectoryNode root() {
 			return new KabiDirectoryNode(new NodeId(null));
 		}
 		
@@ -65,12 +96,78 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		}
 		
 		protected final DBObject dbo() {
+			return dbo;
+		}
+		
+		public final KabiWrittingCommit createNewCommit() {
+			//TODO :
+			return null;
+		} 
+		
+		public final KabiShadowCommit createShadow() {
 			//TODO:
 			return null;
 		}
+		
+		public class KabiWrittingCommit extends Commit {
+
+			@Override
+			public KabiDirectoryNode root() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			public ObjectId getActualOid(ObjectId oid) {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			public DatastoreAdapter datastore() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			protected DBObject dbo() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+			
+		}
+		
+		public class KabiShadowCommit extends KabiWrittingCommit {
+
+			@Override
+			public KabiDirectoryNode root() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			public ObjectId getActualOid(ObjectId oid) {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			public DatastoreAdapter datastore() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+
+			@Override
+			protected DBObject dbo() {
+				// TODO Auto-generated method stub
+				return null;
+			}
+			
+		}
 	}
 	
-
+	
+	
 	
 	public KabiDBAdapter(MongoConn connCFG) {
 		List<ServerAddress> servers;
@@ -199,83 +296,54 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			cur.close();
 		}
 		
-		
-		return new KabiCommit((String) commitDBObj.get("name"),
-				((Date) commitDBObj.get("timestamp")).getTime(),
-				(ObjectId) commitDBObj.get("_id"),
-				(ObjectId) commitDBObj.get("root"),
-				getPatches(commitDBObj));
+		return new KabiPersistentCommit(commitDBObj);
 	}
 	
-	private Map<ObjectId, ObjectId> getPatches(DBObject commitDBObj) {
-		Map<ObjectId, ObjectId> patches, patchesBase;
-		DBObject baseCommitDBObj;
-		ObjectId baseCommitOid;
-		Object o;
-		List<?> patchList;
+
+
+
+	public final void initFS() {
+		DBObject dbo;
+		ObjectId rootId;
 		
-		patches = new HashMap<ObjectId, ObjectId>();
-		
-		o = commitDBObj.get("patch");
-		if (o != null && o instanceof List<?>) {
-			patchList = (List<?>) commitDBObj.get("patch");
-			for (Object obj : patchList) {
-				if (obj instanceof DBObject) {
-					patches.put((ObjectId)((DBObject) obj).get("origin"), (ObjectId)((DBObject) obj).get("replace"));
-				}
-			}
+		if (db.collectionExists("file")) {
+			db.getCollection("file").drop();
+		}
+		if (db.collectionExists("subfile")) {
+			db.getCollection("subfile").drop();
+		}
+		if (db.collectionExists("tree")) {
+			db.getCollection("tree").drop();
+		}
+		if (db.collectionExists("commit")) {
+			db.getCollection("commit").drop();
 		}
 		
-		baseCommitOid = (ObjectId) commitDBObj.get("base");
-		if (baseCommitOid == null) {
-			patches.put(null, (ObjectId) commitDBObj.get("root"));
-			return patches;
-		}
-		baseCommitDBObj = db.getCollection("commit").findOne(new BasicDBObject("_id", baseCommitOid));
-		patchesBase = this.getPatches(baseCommitDBObj);
+		db.createCollection("file", new BasicDBObject());
+		db.createCollection("subfile", new BasicDBObject());
+		db.createCollection("tree", new BasicDBObject());
+		db.createCollection("commit", new BasicDBObject());
 		
-		for (ObjectId origin : patchesBase.keySet()) {
-			ObjectId replace;
-			replace = patchesBase.get(origin);
-			if (patches.containsKey(replace)) {
-				patchesBase.put(origin, patches.get(replace));
-				patches.remove(replace);
-			}
-		}
+		dbo  = new BasicDBObject("counter", 1)
+			.append("gowner", 0)
+			.append("owner", 0)
+			.append("mode", 0777)
+			.append("arc", new ArrayList<DBObject>(0));
+
+		db.getCollection("tree").save(dbo);
 		
-		for (Entry<ObjectId, ObjectId> en : patches.entrySet()) {
-			patchesBase.put(en.getKey(), en.getValue());
-		}
+		rootId = (ObjectId) db.getCollection("tree").findOne().get("_id");
 		
-		return patchesBase;
+		dbo = new BasicDBObject("name", "MAIN")
+			.append("timestamp", new Date())
+			.append("base", null)
+			.append("patch", new ArrayList<DBObject>(0))
+			.append("root", rootId);
+		
+		db.getCollection("commit").save(dbo);
+		
 	}
 	
-	public void initFix(){
-
-		
-		DBCursor cur;
-		DBObject query, commitObj;
-		DBCollection commitCollection;
-		
-		commitCollection = db.getCollection("commit");
-		
-		cur = commitCollection.find(new BasicDBObject("name", "SHADOW"));
-		while (cur.hasNext()) {
-			deleteCommit((ObjectId)cur.next().get("_id"));
-		}
-		cur.close();
-		
-		query = new BasicDBObject("timestamp", null);
-		cur = commitCollection.find(query);
-		if (cur.hasNext()) {
-			commitObj = cur.next();
-			commitObj.put("timestamp", new Date());
-			commitCollection.save(commitObj);
-		}
-		cur.close();
-		
-	}
-
 	@Override
 	public void deleteCommit(ObjectId commit) {
 		db.getCollection("commit").remove(new BasicDBObject("_id", commit));

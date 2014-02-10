@@ -39,7 +39,7 @@ public abstract class Commit {
 	public final class NodeId implements Comparable<NodeId> {
 		private ObjectId objId;
 		public NodeId(ObjectId oid) {
-			objId = getActualOid(oid);
+			objId = Commit.this.getActualOid(oid);
 		}
 		public final int compareTo(NodeId extnodeId) {
 			return objId.compareTo(extnodeId.objId);
