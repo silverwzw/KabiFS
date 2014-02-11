@@ -26,16 +26,19 @@ public abstract class Commit {
 	
 	protected String branch;
 	protected long timestamp;
-	
-	public abstract KabiDirectoryNode root();
+
 	public abstract ObjectId getActualOid(ObjectId oid);
 	public abstract DatastoreAdapter datastore();
-	protected abstract DBObject dbo();
 	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
 	 * @author silverwzw
 	 */
+	
+	public final KabiDirectoryNode root() {
+		return new KabiDirectoryNode(new NodeId(null));
+	}
+	
 	public final class NodeId implements Comparable<NodeId> {
 		private ObjectId objId;
 		public NodeId(ObjectId oid) {

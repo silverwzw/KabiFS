@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -21,9 +22,10 @@ import com.mongodb.Mongo;
 import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.Commit;
-
+import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
+import com.silverwzw.kabiFS.util.Tuple2;
 import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 
@@ -80,10 +82,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				}
 			}
 		}
-
-		public final KabiDirectoryNode root() {
-			return new KabiDirectoryNode(new NodeId(null));
-		}
 		
 		public final DatastoreAdapter datastore() {
 			return KabiDBAdapter.this;
@@ -98,71 +96,317 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		protected final DBObject dbo() {
 			return dbo;
 		}
-		
-		public final KabiWrittingCommit createNewCommit() {
-			//TODO :
-			return null;
+
+		public final KabiWritableCommit createNewDiffCommit(String branch) {
+			return new KabiDiffWrittingCommit(branch);
 		} 
 		
-		public final KabiShadowCommit createShadow() {
-			//TODO:
-			return null;
+		public final KabiWritableCommit createNewDiffCommit() {
+			return new KabiDiffWrittingCommit();
+		} 
+		
+		public final KabiWritableCommit createNewRebaseCommit() {
+			if (dbo().get("base") == null) {
+				return new KabiDiffWrittingCommit(branch);
+			} else {
+				return createNewDiffCommit();
+			}
+		} 
+		
+		public final KabiWritableCommit createShadow() {
+			return new KabiShadowCommit();
 		}
 		
-		public class KabiWrittingCommit extends Commit {
+		public abstract class KabiWritableCommit extends Commit {
 
-			@Override
-			public KabiDirectoryNode root() {
-				// TODO Auto-generated method stub
-				return null;
+			protected Collection<ObjectId> newObjIds;
+			
+			{
+				newObjIds = new HashSet<ObjectId>();
+				timestamp = new Date().getTime();
+			}
+			
+			protected KabiWritableCommit() {
+				branch = KabiPersistentCommit.this.branch;
+			}
+			protected KabiWritableCommit(String branchName) {
+				branch = branchName;
+			}
+			
+			public final ObjectId addDirNode2db(long owner, long gowner, int mode, Tuple2<ObjectId,String> ... subnodes) {
+				
+				DBObject dirDBObj;
+				List<DBObject> arcs;
+				ObjectId newObjId;
+				
+				arcs = new ArrayList<DBObject>(subnodes.length);
+				
+				for (Tuple2<ObjectId,String> tuple : subnodes) {
+					arcs.add(new BasicDBObject("obj", tuple.item1).append("name", tuple.item2));
+				}
+				
+				dirDBObj = new BasicDBObject("counter", 0)
+					.append("gowner", gowner)
+					.append("owner", owner)
+					.append("mode", mode)
+					.append("arc", arcs);
+				
+				KabiPersistentCommit.this.datastore().db()
+					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
+				newObjId = (ObjectId) dirDBObj.get("_id");
+				newObjIds.add(newObjId);
+				return newObjId;
+				
+			}
+			public final ObjectId addFileNode2db(long owner, long gowner, int mode, Tuple2<ObjectId, Long> ... subnodes) {
+				
+				DBObject fileDBObj;
+				List<DBObject> arcs;
+				ObjectId newObjId;
+				
+				arcs = new ArrayList<DBObject>(subnodes.length);
+				
+				for (Tuple2<ObjectId, Long> tuple : subnodes) {
+					arcs.add(new BasicDBObject("obj", tuple.item1).append("offset", tuple.item2));
+				}
+				
+				fileDBObj = new BasicDBObject("counter", 0)
+					.append("gowner", gowner)
+					.append("owner", owner)
+					.append("mode", mode)
+					.append("arc", arcs);
+				
+				KabiPersistentCommit.this.datastore().db()
+					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE)).insert(fileDBObj);
+				newObjId = (ObjectId) fileDBObj.get("_id");
+				newObjIds.add(newObjId);
+				return newObjId;
+				
+			}
+			public final ObjectId addSubNode2db(byte[] bytes) {
+				DBObject subDBObj;
+				ObjectId newObjId;
+				
+				subDBObj = new BasicDBObject("counter", 0).append("data", bytes);
+				KabiPersistentCommit.this.datastore().db()
+					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB)).insert(subDBObj);
+				newObjId = (ObjectId) subDBObj.get("_id");
+				newObjIds.add(newObjId);
+				return newObjId;
 			}
 
-			@Override
-			public ObjectId getActualOid(ObjectId oid) {
-				// TODO Auto-generated method stub
-				return null;
+			public final DatastoreAdapter datastore() {
+				return KabiDBAdapter.this;
+			}
+			
+			public final boolean isNew(ObjectId oid) {
+				return newObjIds.contains(oid);
+			}
+			
+			public abstract void applyPatch(ObjectId origin, ObjectId replace);
+		}
+		/**
+		 * a writable commit based on current.
+		 * @author silverwzw
+		 */
+		public final class KabiDiffWrittingCommit extends KabiWritableCommit {
+			
+			private DBObject dbo;
+			
+			protected final Map<ObjectId, ObjectId> diffPatches;
+			
+			{
+				dbo = null;
+				diffPatches = new HashMap<ObjectId, ObjectId>();
+			}
+			
+			protected KabiDiffWrittingCommit() {
+				super();
+			}
+			
+			protected KabiDiffWrittingCommit(String branchName) {
+				super(branchName);
+			}
+			
+			public final ObjectId getActualOid(ObjectId oid) {
+				ObjectId oidFromBase;
+				oidFromBase = KabiPersistentCommit.this.getActualOid(oid);
+				if (diffPatches.containsKey(oidFromBase)) {
+					return diffPatches.get(oidFromBase);
+				} else {
+					return oidFromBase;
+				}
 			}
 
-			@Override
-			public DatastoreAdapter datastore() {
-				// TODO Auto-generated method stub
-				return null;
-			}
-
-			@Override
-			protected DBObject dbo() {
-				// TODO Auto-generated method stub
-				return null;
+			public void applyPatch(ObjectId origin, ObjectId replace) {
+				diffPatches.put(origin, replace);
+				if (dbo == null) {
+					List<DBObject> patches;
+					patches = new ArrayList<DBObject>(1);
+					patches.add(new BasicDBObject("origin", origin).append("replace", replace));
+					dbo = new BasicDBObject("name", branch)
+						.append("timestamp", new Date(timestamp))
+						.append("root", null)
+						.append("base", KabiPersistentCommit.this.id)
+						.append("patch", patches);
+					KabiPersistentCommit.this.datastore().db().getCollection("commit").insert(dbo);
+				} else {
+					DBObject query, listItem, update;
+					query = new BasicDBObject("_id", (ObjectId) dbo.get("_id"));
+					listItem = new BasicDBObject("patch", new BasicDBObject("origin", origin).append("replace", replace));
+					update = new BasicDBObject("$push", listItem);
+					KabiPersistentCommit.this.datastore().db().getCollection("commit").update(query, update);
+				}
 			}
 			
 		}
-		
-		public class KabiShadowCommit extends KabiWrittingCommit {
-
-			@Override
-			public KabiDirectoryNode root() {
-				// TODO Auto-generated method stub
-				return null;
-			}
-
-			@Override
-			public ObjectId getActualOid(ObjectId oid) {
-				// TODO Auto-generated method stub
-				return null;
-			}
-
-			@Override
-			public DatastoreAdapter datastore() {
-				// TODO Auto-generated method stub
-				return null;
-			}
-
-			@Override
-			protected DBObject dbo() {
-				// TODO Auto-generated method stub
-				return null;
+		/**
+		 * make base to current writting.
+		 * @author silverwzw
+		 */
+		public class KabiRebaseCommit extends KabiWritableCommit {
+			private DBObject dbo;
+			{
+				dbo = null;
 			}
 			
+			protected KabiRebaseCommit() {
+				super();
+			}
+			
+			protected KabiRebaseCommit(String branchName) {
+				super(branchName);
+			}
+			
+			public void applyPatch(ObjectId originId, ObjectId replaceId) {
+				DBCollection commitCollection;
+				DBObject persistentCommitDBObj;
+				
+				persistentCommitDBObj = KabiPersistentCommit.this.dbo();
+				commitCollection = KabiPersistentCommit.this.datastore().db().getCollection("commit"); 
+				
+				if (dbo == null) {
+					
+					dbo = new BasicDBObject("name", branch)
+						.append("timestamp", new Date(timestamp))
+						.append("root", (ObjectId) KabiPersistentCommit.this.dbo().get("root"))
+						.append("base", null)
+						.append("patch", new ArrayList<DBObject>(0));
+					
+					commitCollection.insert(dbo);
+					
+					persistentCommitDBObj.put("root", null);
+					persistentCommitDBObj.put("base", (ObjectId) dbo.get("_id"));
+					
+					commitCollection.save(persistentCommitDBObj);
+					
+				}
+				
+				
+				DBObject originDBObj, replaceDBObj, originQuery, replaceQuery;
+				DBCollection nodeCollections[], originCollection, replaceCollection;
+				DB db;
+				
+				db = KabiPersistentCommit.this.datastore().db();
+				nodeCollections = new DBCollection[3];
+				nodeCollections[0] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY));
+				nodeCollections[1] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE));
+				nodeCollections[2] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB));
+				originQuery = new BasicDBObject("_id", originId);
+				replaceQuery = new BasicDBObject("_id", replaceId);
+				originDBObj = null;
+				replaceDBObj = null;
+				originCollection = null;
+				replaceCollection = null;
+				
+				for (DBCollection collection : nodeCollections) {
+					if (originDBObj == null) {
+						originDBObj = collection.findOne(originQuery);
+					}
+					if (replaceDBObj == null) {
+						replaceDBObj = collection.findOne(replaceQuery);
+					}
+					if (originDBObj != null && originCollection == null) {
+						originCollection = collection;
+					}
+					if (replaceDBObj != null && replaceCollection == null) {
+						replaceCollection = collection;
+					}
+					if (replaceDBObj != null && originDBObj != null) {
+						break;
+					}
+				}
+				
+				originDBObj.put("_id", replaceId);
+				replaceDBObj.put("_id", originId);
+				
+				originCollection.remove(originQuery);
+				originCollection.remove(replaceQuery);
+				
+				originCollection.save(originDBObj);
+				replaceCollection.save(replaceDBObj);
+				
+				commitCollection.update(
+						new BasicDBObject("_id", KabiPersistentCommit.this.id), // query
+						new BasicDBObject("$push", // push command
+								new BasicDBObject("patch",new BasicDBObject("origin", originId).append("replace", replaceId))
+								)
+						);
+			}
+
+			public final ObjectId getActualOid(ObjectId oid) {
+				return oid != null ? oid : (ObjectId) dbo.get("root");
+			}
+		}
+		/**
+		 * a commit that store its patches info in mem, roll back db when unmount
+		 * @author silverwzw
+		 */
+		public final class KabiShadowCommit extends KabiWritableCommit {
+			
+			private final Map<ObjectId, ObjectId> diffPatches;
+			
+			{
+				diffPatches = new HashMap<ObjectId, ObjectId>();
+			}
+
+			public ObjectId getActualOid(final ObjectId oid) {
+				ObjectId oidFromBase;
+				oidFromBase = KabiPersistentCommit.this.getActualOid(oid);
+				if (diffPatches.containsKey(oidFromBase)) {
+					return diffPatches.get(oidFromBase);
+				} else {
+					return null;
+				}
+			}
+
+			public final void applyPatch(final ObjectId origin, final ObjectId replace) {
+				diffPatches.put(origin, replace);
+			}
+			
+			public final void earse() {
+				DB db;
+				DBCollection tree, file, sub;
+				db = KabiPersistentCommit.this.datastore().db();
+				tree = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY));
+				file = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE));
+				sub = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB));
+				for (ObjectId oid : newObjIds) {
+					DBObject query;
+					query = new BasicDBObject("_id", oid);
+					if (tree.remove(query).getN() == 0) {
+						if (file.remove(query).getN() == 0) {
+							sub.remove(query);
+						}
+					}
+				}
+				newObjIds = new HashSet<ObjectId>();
+				diffPatches.clear();
+			}
+			
+			public void finalize() {
+				earse();
+			}
 		}
 	}
 	
