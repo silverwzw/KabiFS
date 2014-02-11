@@ -376,7 +376,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				if (diffPatches.containsKey(oidFromBase)) {
 					return diffPatches.get(oidFromBase);
 				} else {
-					return null;
+					return oidFromBase;
 				}
 			}
 
@@ -475,7 +475,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		return commitList;
 	}
 
-	public Commit getCommit(String commitName) {
+	public KabiPersistentCommit getPersistentCommit(String commitName) {
 		String branchName;
 		long timestamp;
 		if (commitName == null) {

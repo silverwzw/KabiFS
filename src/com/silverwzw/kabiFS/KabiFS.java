@@ -7,7 +7,7 @@ import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
-import com.silverwzw.kabiFS.structure.Commit;
+import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit;
 import com.silverwzw.kabiFS.structure.Commit.KabiDirectoryNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
 import com.silverwzw.kabiFS.structure.Node;
@@ -33,7 +33,7 @@ public class KabiFS extends MetaFS {
 		logger = Logger.getLogger(KabiFS.class);
 	}
 
-	protected final Commit writtingCommit, baseCommit;
+	protected final KabiWritableCommit commit;
 	protected final Path2NodeCache path2nodeCache;
 	
 	{
@@ -42,9 +42,7 @@ public class KabiFS extends MetaFS {
 	
 	public KabiFS(MountOptions options) {
 		super(options);
-		baseCommit = datastore.getCommit(options.baseCommit());
-		//TODO : assign writtingCommit commit
-		writtingCommit = datastore.getCommit(options.baseCommit());
+		commit = datastore.getPersistentCommit(options.baseCommit()).createShadow();
 	}
 	
 	protected boolean nodeIsDirectory(NodeId nid) {
@@ -61,7 +59,7 @@ public class KabiFS extends MetaFS {
 			return nid;
 		}
 
-		nid = baseCommit.root().id();
+		nid = commit.root().id();
 		if (path.equals(Helper.buildPath())) {
 			path2nodeCache.put(path, nid);
 			return nid;
@@ -76,11 +74,11 @@ public class KabiFS extends MetaFS {
 				return null;
 			}
 			KabiDirectoryNode dnode;
-			dnode = baseCommit.new KabiDirectoryNode(nid);
+			dnode = commit.new KabiDirectoryNode(nid);
 			nid = null;
 			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
 				if (sub.item2.equals(comps[i])) {
-					nid = baseCommit.new NodeId(sub.item1);
+					nid = commit.new NodeId(sub.item1);
 					break;
 				}
 			}
@@ -111,9 +109,9 @@ public class KabiFS extends MetaFS {
 		}
 		KabiNoneDataNode ndnode; 
 		if (nodeIsDirectory(nid)) {
-			ndnode = baseCommit.new KabiDirectoryNode(nid);
+			ndnode = commit.new KabiDirectoryNode(nid);
 		} else {
-			ndnode = baseCommit.new KabiFileNode(nid);
+			ndnode = commit.new KabiFileNode(nid);
 		}
 		Helper.setMode(stat, ndnode);
 		return 0;
@@ -134,12 +132,12 @@ public class KabiFS extends MetaFS {
 			return -ErrorCodes.ENOENT();
 		}
 		int byte_count = 0;
-		for (Tuple2<ObjectId, Long> tuple : baseCommit.new KabiFileNode(nid).subNodes()) {
+		for (Tuple2<ObjectId, Long> tuple : commit.new KabiFileNode(nid).subNodes()) {
 			if (tuple.item2 <= offset) {
 				continue;
 			}
 			byte[] data;
-			data = baseCommit.new KabiSubNode(baseCommit.new NodeId(tuple.item1)).data();
+			data = commit.new KabiSubNode(commit.new NodeId(tuple.item1)).data();
 			if (tuple.item2 < offset + size) {
 				buffer.put(data);
 				byte_count += data.length;
@@ -169,7 +167,7 @@ public class KabiFS extends MetaFS {
 		if (nid == null || !nodeIsDirectory(nid)) {
 			return -ErrorCodes.ENOENT();
 		}
-		for (Tuple2<ObjectId, String> sub : baseCommit.new KabiDirectoryNode(nid).subNodes()) {
+		for (Tuple2<ObjectId, String> sub : commit.new KabiDirectoryNode(nid).subNodes()) {
 			filler.add(sub.item2);
 		}
 		return 0;

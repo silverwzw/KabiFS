@@ -8,6 +8,7 @@ import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DB;
+import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit;
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Tuple3;
@@ -43,7 +44,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		 * @param commitName not necessary the full name
 		 * @return the Commit Object
 		 */
-		public Commit getCommit(String commitName);
+		public KabiPersistentCommit getPersistentCommit(String commitName);
 		/**
 		 * delete a commit
 		 * @param commitName the FULL name of the commit
