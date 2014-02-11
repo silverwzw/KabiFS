@@ -7,8 +7,10 @@ import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
+import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiShadowCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit;
 import com.silverwzw.kabiFS.structure.Commit.KabiDirectoryNode;
+import com.silverwzw.kabiFS.structure.Commit.KabiFileNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.structure.Commit.NodeId;
@@ -22,6 +24,7 @@ import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
 import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
 import net.fusejna.StructStat.StatWrapper;
+import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
 public class KabiFS extends MetaFS {
@@ -170,6 +173,55 @@ public class KabiFS extends MetaFS {
 		for (Tuple2<ObjectId, String> sub : commit.new KabiDirectoryNode(nid).subNodes()) {
 			filler.add(sub.item2);
 		}
+		return 0;
+	}
+	
+	public final void beforeUnmount(File mountPoint) {
+		if (commit instanceof KabiShadowCommit) {
+			((KabiShadowCommit) commit).earse();
+		}
+	}
+	
+	public int chmod(String path, ModeWrapper mode) {
+		NodeId nid;
+		
+		nid = findNodeByPath(path);
+		
+		if (nid == null) {
+			return -ErrorCodes.ENOSYS();
+		}
+
+		ObjectId newObjId;
+		
+		if (nodeIsDirectory(nid)) {
+			KabiDirectoryNode dirNode;
+			
+			dirNode = commit.new KabiDirectoryNode(nid);
+			newObjId = commit.addDirNode2db(
+					dirNode.uid(), 
+					dirNode.gid(),
+					(int) mode.mode(),
+					dirNode.subNodes()
+					);
+		} else {
+			KabiFileNode fileNode;
+			
+			fileNode = commit.new KabiFileNode(nid);
+			newObjId = commit.addFileNode2db(
+					fileNode.uid(), 
+					fileNode.gid(),
+					(int) mode.mode(),
+					fileNode.subNodes()
+					);
+		}
+		
+		commit.applyPatch(nid.oid(), newObjId);
+		path2nodeCache.put(path, commit.new NodeId(newObjId));
+		return 0;
+	}
+
+	public int chown(String path, long uid, long gid) {
+		// TODO Auto-generated method stub
 		return 0;
 	}
 }

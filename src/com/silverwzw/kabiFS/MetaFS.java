@@ -9,7 +9,6 @@ import org.bson.types.ObjectId;
 
 import com.mongodb.DB;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit;
-import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper;
@@ -82,37 +81,19 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	@Override
-	public void afterUnmount(File mountPoint) {
-		// TODO Auto-generated method stub
-		
-	}
-
-	@Override
 	public void beforeMount(File mountPoint) {
 		// TODO Auto-generated method stub
 		
 	}
 
 	@Override
-	public void beforeUnmount(File mountPoint) {
+	public void afterUnmount(File mountPoint) {
 		// TODO Auto-generated method stub
 		
 	}
 
 	@Override
 	public int bmap(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public int chmod(String path, ModeWrapper mode) {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public int chown(String path, long uid, long gid) {
 		// TODO Auto-generated method stub
 		return 0;
 	}

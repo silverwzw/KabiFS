@@ -133,13 +133,13 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				branch = branchName;
 			}
 			
-			public final ObjectId addDirNode2db(long owner, long gowner, int mode, Tuple2<ObjectId,String> ... subnodes) {
+			public final ObjectId addDirNode2db(long owner, long gowner, int mode, Collection<Tuple2<ObjectId,String>> subnodes) {
 				
 				DBObject dirDBObj;
 				List<DBObject> arcs;
 				ObjectId newObjId;
 				
-				arcs = new ArrayList<DBObject>(subnodes.length);
+				arcs = new ArrayList<DBObject>(subnodes.size());
 				
 				for (Tuple2<ObjectId,String> tuple : subnodes) {
 					arcs.add(new BasicDBObject("obj", tuple.item1).append("name", tuple.item2));
@@ -158,13 +158,13 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				return newObjId;
 				
 			}
-			public final ObjectId addFileNode2db(long owner, long gowner, int mode, Tuple2<ObjectId, Long> ... subnodes) {
+			public final ObjectId addFileNode2db(long owner, long gowner, int mode, List<Tuple2<ObjectId, Long>> subnodes) {
 				
 				DBObject fileDBObj;
 				List<DBObject> arcs;
 				ObjectId newObjId;
 				
-				arcs = new ArrayList<DBObject>(subnodes.length);
+				arcs = new ArrayList<DBObject>(subnodes.size());
 				
 				for (Tuple2<ObjectId, Long> tuple : subnodes) {
 					arcs.add(new BasicDBObject("obj", tuple.item1).append("offset", tuple.item2));
@@ -403,15 +403,8 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				newObjIds = new HashSet<ObjectId>();
 				diffPatches.clear();
 			}
-			
-			public void finalize() {
-				earse();
-			}
 		}
 	}
-	
-	
-	
 	
 	public KabiDBAdapter(MongoConn connCFG) {
 		List<ServerAddress> servers;
