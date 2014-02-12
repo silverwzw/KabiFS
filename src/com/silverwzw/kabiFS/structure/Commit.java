@@ -9,7 +9,7 @@ import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DBObject;
-import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
+import com.silverwzw.kabiFS.KabiDBAdapter;
 import com.silverwzw.kabiFS.util.Tuple2;
 
 
@@ -28,7 +28,7 @@ public abstract class Commit {
 	protected long timestamp;
 
 	public abstract ObjectId getActualOid(ObjectId oid);
-	public abstract DatastoreAdapter datastore();
+	public abstract KabiDBAdapter datastore();
 	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
@@ -39,9 +39,25 @@ public abstract class Commit {
 		return new KabiDirectoryNode(new NodeId(null));
 	}
 	
+	public final NodeId getNodeId(ObjectId oid) {
+		return new NodeId(oid);
+	}
+
+	public final KabiFileNode getFileNode(NodeId nid) {
+		return new KabiFileNode(nid);
+	}
+
+	public final KabiSubNode getSubNode(NodeId nid) {
+		return new KabiSubNode(nid);
+	}
+	
+	public final KabiDirectoryNode getDirNode(NodeId nid) {
+		return new KabiDirectoryNode(nid);
+	}
+	
 	public final class NodeId implements Comparable<NodeId> {
 		private ObjectId objId;
-		public NodeId(ObjectId oid) {
+		protected NodeId(ObjectId oid) {
 			objId = Commit.this.getActualOid(oid);
 		}
 		public final int compareTo(NodeId extnodeId) {
@@ -109,7 +125,7 @@ public abstract class Commit {
 			type = KabiNodeType.DIRECTORY;
 			subNodes = null;
 		}
-		public KabiDirectoryNode(NodeId nid) {
+		protected KabiDirectoryNode(NodeId nid) {
 			super(nid);
 		}
 		public Collection<Tuple2<ObjectId, String>> subNodes() {
@@ -141,7 +157,7 @@ public abstract class Commit {
 			subNodes = null;
 			size = -1;
 		}
-		public KabiFileNode(NodeId nid) {
+		protected KabiFileNode(NodeId nid) {
 			super(nid);
 		}
 		public LinkedList<Tuple2<ObjectId, Long>> subNodes() {
@@ -177,7 +193,7 @@ public abstract class Commit {
 			data = null;
 			type = KabiNodeType.SUB;
 		}
-		public KabiSubNode(NodeId nid) {
+		protected KabiSubNode(NodeId nid) {
 			super(nid);
 		}
 		public final byte[] data(){

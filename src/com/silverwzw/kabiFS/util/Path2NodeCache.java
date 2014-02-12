@@ -10,16 +10,18 @@ public final class Path2NodeCache {
 	protected LinkedList<String> mtfList;
 	protected int size;
 	
-	{
-		map = new HashMap<String, NodeId>();
-		mtfList = new LinkedList<String>();
-	}
-	
 	public Path2NodeCache(int size) {
 		this.size = size;
+		if (size > 0) {
+			map = new HashMap<String, NodeId>();
+			mtfList = new LinkedList<String>();
+		}
 	}
 	
 	public synchronized void put(String path, NodeId nid) {
+		if (size < 1) {
+			return;
+		}
 		if (mtfList.size() > size) {
 			map.remove(mtfList.removeLast());
 		}
@@ -28,6 +30,9 @@ public final class Path2NodeCache {
 	}
 	
 	public synchronized NodeId get(String path) {
+		if (size < 1) {
+			return null;
+		}
 		NodeId ret;
 		ret = map.get(path);
 		if (ret != null) {
@@ -35,5 +40,12 @@ public final class Path2NodeCache {
 			mtfList.offerFirst(path);
 		}
 		return ret;
+	}
+	
+	public synchronized void dirty(String path) {
+		if (size < 1) {
+			return;
+		}
+		map.remove(path);
 	}
 }

@@ -20,16 +20,16 @@ import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.Mongo;
 import com.mongodb.ServerAddress;
-import com.silverwzw.kabiFS.MetaFS.DatastoreAdapter;
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.structure.Node;
+import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
 import com.silverwzw.kabiFS.util.Tuple2;
 import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 
-public class KabiDBAdapter implements DatastoreAdapter {
+public class KabiDBAdapter {
 	
 	private static final Logger logger;
 	
@@ -37,7 +37,11 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		logger = Logger.getLogger(KabiDBAdapter.class);
 	}
 	
-	private DB db;
+	private DB db;		
+	private DBCollection collections[];
+	{
+		collections = null;
+	}
 	
 	public final class KabiPersistentCommit extends Commit {
 		
@@ -83,7 +87,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 			}
 		}
 		
-		public final DatastoreAdapter datastore() {
+		public final KabiDBAdapter datastore() {
 			return KabiDBAdapter.this;
 		}
 
@@ -148,7 +152,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				dirDBObj = new BasicDBObject("counter", 0)
 					.append("gowner", gowner)
 					.append("owner", owner)
-					.append("mode", mode)
+					.append("mode", mode % 01000)
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
@@ -173,7 +177,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				fileDBObj = new BasicDBObject("counter", 0)
 					.append("gowner", gowner)
 					.append("owner", owner)
-					.append("mode", mode)
+					.append("mode", mode % 01000)
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
@@ -195,15 +199,26 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				return newObjId;
 			}
 
-			public final DatastoreAdapter datastore() {
-				return KabiDBAdapter.this;
+			public final KabiDBAdapter datastore() {
+				return KabiPersistentCommit.this.datastore();
 			}
 			
 			public final boolean isNew(ObjectId oid) {
 				return newObjIds.contains(oid);
 			}
 			
-			public abstract void applyPatch(ObjectId origin, ObjectId replace);
+			public void patch(ObjectId origin, ObjectId replace) {
+				if (isNew(origin)) { // direct replace.
+					Tuple3<Node.KabiNodeType, DBCollection, DBObject> nodeinfo;
+					nodeinfo = KabiDBAdapter.this.getNodeDBO(replace);
+					nodeinfo.item3.put("_id", origin);
+					nodeinfo.item2.save(nodeinfo.item3);
+					nodeinfo.item2.remove(new BasicDBObject("_id", replace));
+				}
+				// otherwise
+				applyPatch(origin, replace);
+			}
+			protected abstract void applyPatch(ObjectId origin, ObjectId replace);
 		}
 		/**
 		 * a writable commit based on current.
@@ -238,7 +253,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				}
 			}
 
-			public void applyPatch(ObjectId origin, ObjectId replace) {
+			protected final void applyPatch(ObjectId origin, ObjectId replace) {
 				diffPatches.put(origin, replace);
 				if (dbo == null) {
 					List<DBObject> patches;
@@ -278,7 +293,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				super(branchName);
 			}
 			
-			public void applyPatch(ObjectId originId, ObjectId replaceId) {
+			protected void applyPatch(ObjectId originId, ObjectId replaceId) {
 				DBCollection commitCollection;
 				DBObject persistentCommitDBObj;
 				
@@ -303,48 +318,19 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				}
 				
 				
-				DBObject originDBObj, replaceDBObj, originQuery, replaceQuery;
-				DBCollection nodeCollections[], originCollection, replaceCollection;
-				DB db;
+				Tuple3<?, DBCollection, DBObject> originTuple, replaceTuple;
 				
-				db = KabiPersistentCommit.this.datastore().db();
-				nodeCollections = new DBCollection[3];
-				nodeCollections[0] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY));
-				nodeCollections[1] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE));
-				nodeCollections[2] = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB));
-				originQuery = new BasicDBObject("_id", originId);
-				replaceQuery = new BasicDBObject("_id", replaceId);
-				originDBObj = null;
-				replaceDBObj = null;
-				originCollection = null;
-				replaceCollection = null;
+				originTuple = KabiDBAdapter.this.getNodeDBO(originId);
+				replaceTuple = KabiDBAdapter.this.getNodeDBO(replaceId);
 				
-				for (DBCollection collection : nodeCollections) {
-					if (originDBObj == null) {
-						originDBObj = collection.findOne(originQuery);
-					}
-					if (replaceDBObj == null) {
-						replaceDBObj = collection.findOne(replaceQuery);
-					}
-					if (originDBObj != null && originCollection == null) {
-						originCollection = collection;
-					}
-					if (replaceDBObj != null && replaceCollection == null) {
-						replaceCollection = collection;
-					}
-					if (replaceDBObj != null && originDBObj != null) {
-						break;
-					}
-				}
+				originTuple.item3.put("_id", replaceId);
+				replaceTuple.item3.put("_id", originId);
+
+				originTuple.item2.remove(new BasicDBObject("_id", originId));
+				replaceTuple.item2.remove(new BasicDBObject("_id", replaceId));
 				
-				originDBObj.put("_id", replaceId);
-				replaceDBObj.put("_id", originId);
-				
-				originCollection.remove(originQuery);
-				originCollection.remove(replaceQuery);
-				
-				originCollection.save(originDBObj);
-				replaceCollection.save(replaceDBObj);
+				originTuple.item2.save(originTuple.item3);
+				replaceTuple.item2.save(replaceTuple.item3);
 				
 				commitCollection.update(
 						new BasicDBObject("_id", KabiPersistentCommit.this.id), // query
@@ -380,7 +366,7 @@ public class KabiDBAdapter implements DatastoreAdapter {
 				}
 			}
 
-			public final void applyPatch(final ObjectId origin, final ObjectId replace) {
+			protected final void applyPatch(final ObjectId origin, final ObjectId replace) {
 				diffPatches.put(origin, replace);
 			}
 			
@@ -419,7 +405,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		db = new Mongo(servers).getDB(connCFG.db());
 	}
 
-	@Override
 	public final Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList() {
 		if (!db.collectionExists("commit")) {
 			logger.error("connot find commit collection");
@@ -581,7 +566,6 @@ public class KabiDBAdapter implements DatastoreAdapter {
 		
 	}
 	
-	@Override
 	public void deleteCommit(ObjectId commit) {
 		db.getCollection("commit").remove(new BasicDBObject("_id", commit));
 		//TODO : release nodes
@@ -589,5 +573,51 @@ public class KabiDBAdapter implements DatastoreAdapter {
 	
 	public final DB db() {
 		return db;
+	}
+	
+	private final DBCollection[] collections() {
+		if (collections == null) {
+			collections = new DBCollection[] { // do not modify the order, getNodeDBO() depends on that
+				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY)),
+				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE)),
+				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB))
+			};
+		}
+		return collections;
+	}
+
+	private final Tuple3<KabiNodeType, DBCollection, DBObject> getNodeDBO(ObjectId oid) {
+		DBObject query, queryResult;
+		
+		
+		query = new BasicDBObject("_id", oid);
+		
+		
+		for (int i = 0; i < collections().length; i++) {
+			DBCollection collection;
+			collection = collections()[i];
+			queryResult = collection.findOne(query); 
+			if (queryResult != null) {
+				Tuple3<KabiNodeType, DBCollection, DBObject> tp3;
+
+				tp3 = new Tuple3<KabiNodeType, DBCollection, DBObject>();
+				
+				switch (i) {
+					case 0:
+						tp3.item1 = Node.KabiNodeType.DIRECTORY;
+						break;
+					case 1:
+						tp3.item1 = Node.KabiNodeType.FILE;
+						break;
+					default:
+						tp3.item1 = Node.KabiNodeType.SUB;
+				}
+				
+				tp3.item2 = collection;
+				tp3.item3  = queryResult;
+				return tp3;
+			}
+		}
+		return null;
 	}
 }

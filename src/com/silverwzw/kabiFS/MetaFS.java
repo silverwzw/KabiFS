@@ -32,34 +32,6 @@ public abstract class MetaFS extends FuseFilesystem {
 	private static final Logger logger;
 	protected static final String metaDirName;
 	
-	public static interface DatastoreAdapter {
-		/**
-		 * get the Commit list
-		 * @return collection of tuples, 1st item is ObjectId of commit, 2nd is name, 3rd is the ObjectId of base commit.
-		 */
-		public Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList();
-		/**
-		 * get the commit object by commit name
-		 * @param commitName not necessary the full name
-		 * @return the Commit Object
-		 */
-		public KabiPersistentCommit getPersistentCommit(String commitName);
-		/**
-		 * delete a commit
-		 * @param commitName the FULL name of the commit
-		 */
-		public void deleteCommit(ObjectId commitName);
-		/**
-		 * return the db reference
-		 * @return DB
-		 */
-		public DB db();
-		/**
-		 * initiate the File System (will earse everything)
-		 */
-		public void initFS();
-	}
-	
 	static {
 		metaDirName = ".kabimeta";
 		logger = Logger.getLogger(MetaFS.class);
@@ -67,7 +39,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	
 
 	protected final MountOptions mntoptions;
-	protected final DatastoreAdapter datastore;
+	protected final KabiDBAdapter datastore;
 	
 	public MetaFS(MountOptions options) {
 		this.mntoptions = options; 
