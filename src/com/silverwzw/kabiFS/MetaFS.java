@@ -45,12 +45,6 @@ public abstract class MetaFS extends FuseFilesystem {
 		this.mntoptions = options; 
 		datastore = new KabiDBAdapter(options.mongoConn());
 	}
-	
-	@Override
-	public int access(String path, int access) {
-		// TODO Auto-generated method stub
-		return -ErrorCodes.ENOSYS();
-	}
 
 	@Override
 	public void beforeMount(File mountPoint) {
@@ -75,16 +69,12 @@ public abstract class MetaFS extends FuseFilesystem {
 		// TODO Auto-generated method stub
 		return -ErrorCodes.ENOSYS();
 	}
-
-	@Override
-	public void destroy() {
-		// TODO Auto-generated method stub
-		
+	
+	public final void beforeUnmount(File mountPoint) {
+		;
 	}
 
-	@Override
 	public int fgetattr(String path, StatWrapper stat, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
 		return getattr(path, stat);
 	}
 
@@ -155,10 +145,8 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -1;
 	}
 
-	@Override
-	protected String getName() {
-		// TODO Auto-generated method stub
-		return null;
+	protected final String getName() {
+		return "KabiFS";
 	}
 	/**
 	 * Overrides getOptions() in super class, returns FUSE options
