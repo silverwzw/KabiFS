@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.log4j.Logger;
 
+import com.silverwzw.kabiFS.util.Constant;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Helper;
 
@@ -13,6 +14,7 @@ import net.fusejna.ErrorCodes;
 import net.fusejna.FlockCommand;
 import net.fusejna.FuseFilesystem;
 import net.fusejna.StructFlock.FlockWrapper;
+import net.fusejna.StructFuseContext;
 import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
 import net.fusejna.StructStat.StatWrapper;
 import net.fusejna.StructStatvfs.StatvfsWrapper;
@@ -41,6 +43,45 @@ public abstract class MetaFS extends FuseFilesystem {
 		datastore = new KabiDBAdapter(options.mongoConn());
 	}
 
+	public int access(String path, int access) {
+		if (!path.startsWith(Helper.buildPath(metaDirName))) {
+			return -ErrorCodes.EEXIST();
+		}
+		StructFuseContext context;
+		context = getFuseContext();
+		if (context.gid.longValue() !=0 && context.uid.longValue() != 0) {
+			return -ErrorCodes.EACCES();
+		}
+		if (path.equals(Helper.buildPath(metaDirName))) {
+			if (access == Constant.F_OK) {
+				return 0;
+			}
+			if ((access & Constant.W_OK) != 0) {
+				return -ErrorCodes.EACCES();
+			}
+			return 0;
+		}
+		if (path.equals(Helper.buildPath(metaDirName, "commits"))
+			|| path.equals(Helper.buildPath(metaDirName, "commits"))
+			|| path.equals(Helper.buildPath(metaDirName, "fs_parameters"))
+			|| path.equals(Helper.buildPath(metaDirName, "mount_options"))
+			) {
+			if (access == Constant.F_OK || access == Constant.R_OK) {
+				return 0;
+			} else {
+				return -ErrorCodes.EACCES();
+			}
+		}
+		if (path.equals(Helper.buildPath(metaDirName, "kabi_console"))) {
+			if (access == Constant.F_OK || access == Constant.W_OK) {
+				return 0;
+			} else {
+				return -ErrorCodes.EACCES();
+			}
+		}
+		return -ErrorCodes.EEXIST();
+	}
+	
 	public final void beforeMount(File mountPoint) {}
 
 	public final void afterUnmount(File mountPoint) {}
@@ -89,42 +130,39 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	@Override
 	public int getattr(String path, StatWrapper stat) {
+		if (!path.startsWith(Helper.buildPath(metaDirName))) {
+			return -1;
+		}
 		if (path.equals(Helper.buildPath(metaDirName))) {
 			stat.setMode(NodeType.DIRECTORY, true, false, true, true, false, true, false, false, false);
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
+			stat.uid(0);
+			stat.gid(0);
 			return 0;
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "mount_options"))) {
 			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
 			stat.size(mntoptions.toMetaFile().length());
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
+			stat.uid(0);
+			stat.gid(0);
 			return 0;
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "fs_parameters"))) {
 			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
+			stat.uid(0);
+			stat.gid(0);
 			return 0;
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "commits"))) {
 			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
 			stat.size(Helper.commitList2MetaFile(datastore.getCommitList()).length());
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
+			stat.uid(0);
+			stat.gid(0);
 			return 0;
 		}
-		if (path.equals(Helper.buildPath(metaDirName, "kabi_console_out"))) {
-			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
-			return 0;
-		}
-		if (path.equals(Helper.buildPath(metaDirName, "kabi_console_in"))) {
+		if (path.equals(Helper.buildPath(metaDirName, "kabi_console"))) {
 			stat.setMode(NodeType.FILE, false, true, false, false, false, false, false, false, false);
-			stat.uid(getFuseContextUid().intValue());
-			stat.gid(getFuseContextGid().intValue());
+			stat.uid(0);
+			stat.gid(0);
 			return 0;
 		}
 		return -1;
@@ -209,8 +247,7 @@ public abstract class MetaFS extends FuseFilesystem {
 			filler.add("commits");
 			filler.add("fs_parameters");
 			filler.add("mount_options");
-			filler.add("kabi_console_in");
-			filler.add("kabi_console_out");
+			filler.add("kabi_console");
 			return 0;
 		} else {
 			return -1;
@@ -274,10 +311,11 @@ public abstract class MetaFS extends FuseFilesystem {
 		return 0;
 	}
 
-	@Override
 	public int unlink(String path) {
-		// TODO Auto-generated method stub
-		return 0;
+		if (path.startsWith(Helper.buildPath(metaDirName))) {
+			return ErrorCodes.EACCES();
+		}
+		return ErrorCodes.EEXIST();
 	}
 
 	@Override

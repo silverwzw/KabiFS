@@ -382,6 +382,12 @@ public class KabiFS extends MetaFS {
 	}
 	
 	public final int access(String path, int access) {
+		int superAccess;
+		superAccess = super.access(path, access);
+		if (superAccess != -ErrorCodes.EEXIST()) {
+			return superAccess;
+		}
+		
 		NodeId nid;
 		
 		nid = findNodeByPath(path);
@@ -446,7 +452,7 @@ public class KabiFS extends MetaFS {
 		
 		newDirTp2 = new Tuple2<ObjectId, String>();
 		newDirTp2.item1 = newDir;
-		newDirTp2.item2 = path.substring(path.lastIndexOf(File.separator) + 1);
+		newDirTp2.item2 = Helper.nameOf(path);
 		
 		subs.add(newDirTp2);
 		
@@ -458,6 +464,54 @@ public class KabiFS extends MetaFS {
 		
 		commit.patch(parentNid.oid(), newParent);
 		path2nodeCache.dirty(parentPath);
+		return 0;
+	}
+	public final int unlink(String path) {
+		int superUnlink;
+		superUnlink = super.unlink(path);
+		if (superUnlink != ErrorCodes.EEXIST()) {
+			return superUnlink;
+		}
+		
+		NodeId fileNid, parentNid;
+		Tuple3<Boolean, KabiNodeType, Node> fnodeinfo, pnodeinfo;
+		String ppath;
+		KabiDirectoryNode dnode;
+		Collection<Tuple2<ObjectId, String>> subs;
+		ObjectId newpoid;
+		fileNid = findNodeByPath(path);
+		if (fileNid == null) {
+			return 0;
+		}
+		
+		ppath = Helper.parentPath(path);
+		parentNid = findNodeByPath(ppath);
+		
+		fnodeinfo = getNode(fileNid, Constant.F_OK);
+		pnodeinfo = getNode(parentNid, Constant.W_OK);
+		
+		if (fnodeinfo.item2 == KabiNodeType.DIRECTORY) {
+			return ErrorCodes.EISDIR();
+		}
+		if (!pnodeinfo.item1) {
+			return ErrorCodes.EACCES();
+		}
+		
+		dnode = (KabiDirectoryNode) pnodeinfo.item3;
+		
+		subs = new LinkedList<Tuple2<ObjectId, String>>();
+		
+		for (Tuple2<ObjectId, String> en : dnode.subNodes()) {
+			if (!en.item2.equals(Helper.nameOf(path))) {
+				subs.add(en);
+			}
+		}
+		
+		newpoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
+		commit.patch(parentNid.oid(), newpoid);
+		
+		path2nodeCache.dirty(ppath);
+		
 		return 0;
 	}
 }

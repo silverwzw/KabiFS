@@ -64,7 +64,9 @@ public final class Helper {
 		}
 		return path.substring(0, last);
 	}
-
+	public static final String nameOf(String path) {
+		return path.substring(path.lastIndexOf(File.separator) + 1);
+	}
 	/**
 	 * check if the input is a valid commit name
 	 * @param inputName commit name to be tested
