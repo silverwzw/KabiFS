@@ -282,10 +282,15 @@ public abstract class MetaFS extends FuseFilesystem {
 		return 0;
 	}
 
-	@Override
 	public int rmdir(String path) {
-		// TODO Auto-generated method stub
-		return 0;
+		if (!path.startsWith(Helper.buildPath(metaDirName))) {
+			return -ErrorCodes.EEXIST();
+		}
+		if (path.equals(Helper.buildPath(metaDirName))) {
+			return -ErrorCodes.ENOTEMPTY();
+		} else {
+			return -ErrorCodes.ENOTDIR();
+		}
 	}
 
 	@Override

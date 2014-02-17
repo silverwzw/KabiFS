@@ -214,6 +214,7 @@ public class KabiDBAdapter {
 					nodeinfo.item3.put("_id", origin);
 					nodeinfo.item2.save(nodeinfo.item3);
 					nodeinfo.item2.remove(new BasicDBObject("_id", replace));
+					return;
 				}
 				// otherwise
 				applyPatch(origin, replace);
@@ -521,9 +522,6 @@ public class KabiDBAdapter {
 		return new KabiPersistentCommit(commitDBObj);
 	}
 	
-
-
-
 	public final void initFS() {
 		DBObject dbo;
 		ObjectId rootId;

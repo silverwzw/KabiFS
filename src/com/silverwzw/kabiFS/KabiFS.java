@@ -5,6 +5,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
+import java.util.List;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
@@ -107,20 +108,29 @@ public class KabiFS extends MetaFS {
 		return tp3;
 	}
 	
-	private NodeId findNodeByPath(String path){
+	private Tuple2<NodeId, NodeId> findNodeByPath(String path){
 
-		NodeId nid;
+		Tuple2<NodeId, NodeId> tp2;
 		
-		nid = path2nodeCache.get(path);
+		tp2 = new Tuple2<NodeId, NodeId>();
 		
-		if (nid != null) {
-			return nid;
+		tp2.item1 = path2nodeCache.get(path);
+		if (!path.equals(Helper.buildPath())) {
+			tp2.item2 = path2nodeCache.get(Helper.parentPath(path));
+		} else {
+			tp2.item2 = null;
+		}
+		
+		if (tp2.item1 != null) {
+			return tp2;
 		}
 
-		nid = commit.root().id();
+		tp2.item1 = commit.root().id();
+		tp2.item2 = null;
+		
 		if (path.equals(Helper.buildPath())) {
-			path2nodeCache.put(path, nid);
-			return nid;
+			path2nodeCache.put(path, tp2.item1);
+			return tp2;
 		}
 		
 		String[] comps;
@@ -129,26 +139,27 @@ public class KabiFS extends MetaFS {
 		
 		for (int i = 1; i < comps.length; i++) {
 			DBObject dbo;
-			dbo = datastore.db().getCollection(Node.type2CollectionName(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", nid.oid())); 
+			dbo = datastore.db().getCollection(Node.type2CollectionName(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", tp2.item1.oid())); 
 			if (dbo == null) {
 				return null;
 			}
 			KabiDirectoryNode dnode;
 			dnode = commit.new KabiDirectoryNode(dbo);
-			nid = null;
+			tp2.item2 = tp2.item1;
+			tp2.item1 = null;
 			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
 				if (sub.item2.equals(comps[i])) {
-					nid = commit.getNodeId(sub.item1);
+					tp2.item1 = commit.getNodeId(sub.item1);
 					break;
 				}
 			}
-			if (nid == null) {
-				return null;
+			if (tp2.item1 == null) {
+				return tp2;
 			}
 		}
 		
-		path2nodeCache.put(path, nid);
-		return nid;
+		path2nodeCache.put(path, tp2.item1);
+		return tp2;
 	}
 	
 	@Override
@@ -163,7 +174,7 @@ public class KabiFS extends MetaFS {
 		}
 		
 		NodeId nid;
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		if (nid == null) {
 			return -ErrorCodes.ENOENT();
 		}
@@ -183,7 +194,7 @@ public class KabiFS extends MetaFS {
 		NodeId nid;
 		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		nodeinfo = getNode(nid, Constant.R_OK);
 		if (nid == null || nodeinfo.item2 != KabiNodeType.FILE) {
 			return -ErrorCodes.ENOENT();
@@ -220,7 +231,7 @@ public class KabiFS extends MetaFS {
 		NodeId nid;
 		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		
 		if (nid == null) {
 			return -ErrorCodes.ENOENT();
@@ -243,7 +254,7 @@ public class KabiFS extends MetaFS {
 		NodeId nid;
 		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		nodeinfo = getNode(nid, Constant.R_OK);
 		if (nid == null) {
 			return -ErrorCodes.ENOENT();
@@ -271,7 +282,7 @@ public class KabiFS extends MetaFS {
 		NodeId nid;
 		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		
 		if (nid == null) {
 			return -ErrorCodes.ENOENT();
@@ -328,7 +339,7 @@ public class KabiFS extends MetaFS {
 		NodeId nid;
 		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		
 		if (nid == null) {
 			return -ErrorCodes.ENOENT();
@@ -390,7 +401,7 @@ public class KabiFS extends MetaFS {
 		
 		NodeId nid;
 		
-		nid = findNodeByPath(path);
+		nid = findNodeByPath(path).item1;
 		
 		if (nid == null) {
 			if (access == Constant.F_OK) {
@@ -410,7 +421,7 @@ public class KabiFS extends MetaFS {
 			return superMkdir;
 		}
 		
-		if (findNodeByPath(path) != null) {
+		if (findNodeByPath(path).item1 != null) {
 			return -ErrorCodes.EEXIST();
 		}
 		
@@ -423,7 +434,7 @@ public class KabiFS extends MetaFS {
 		
 		parentPath = Helper.parentPath(path);
 		context = getFuseContext();
-		parentNid = findNodeByPath(parentPath);
+		parentNid = findNodeByPath(parentPath).item1;
 		
 		if (parentNid == null) {
 			mkdir(parentPath, mode);
@@ -432,7 +443,6 @@ public class KabiFS extends MetaFS {
 		tp3 = getNode(parentNid, Constant.W_OK);
 		
 		if (!tp3.item1) {
-			System.out.print("not permitted on " + Helper.parentPath(path) + "\n");
 			return -ErrorCodes.EACCES();
 		}
 
@@ -475,17 +485,20 @@ public class KabiFS extends MetaFS {
 		
 		NodeId fileNid, parentNid;
 		Tuple3<Boolean, KabiNodeType, Node> fnodeinfo, pnodeinfo;
+		Tuple2<NodeId, NodeId> tp2;
 		String ppath;
 		KabiDirectoryNode dnode;
 		Collection<Tuple2<ObjectId, String>> subs;
 		ObjectId newpoid;
-		fileNid = findNodeByPath(path);
+		
+		tp2 = findNodeByPath(path);
+		fileNid = tp2.item1;
 		if (fileNid == null) {
 			return 0;
 		}
 		
 		ppath = Helper.parentPath(path);
-		parentNid = findNodeByPath(ppath);
+		parentNid = tp2.item2 == null ? findNodeByPath(ppath).item1 : tp2.item2;
 		
 		fnodeinfo = getNode(fileNid, Constant.F_OK);
 		pnodeinfo = getNode(parentNid, Constant.W_OK);
@@ -512,6 +525,57 @@ public class KabiFS extends MetaFS {
 		
 		path2nodeCache.dirty(ppath);
 		
+		return 0;
+	}
+	
+	public final int rmdir(String path) {
+		int superRmdir;
+		superRmdir = super.rmdir(path);
+		if (superRmdir != -ErrorCodes.EEXIST()) {
+			return superRmdir;
+		}
+		
+		if (path.equals(Helper.buildPath())) {
+			return -ErrorCodes.EFAULT();
+		}
+		
+		Tuple2<NodeId, NodeId> nids;
+		Tuple3<Boolean, KabiNodeType, Node> dir, pdir;
+		KabiDirectoryNode dnode;
+		List<Tuple2<ObjectId, String>> subs;
+		ObjectId newoid;
+		
+		nids = findNodeByPath(path);
+		
+		dir = getNode(nids.item1, Constant.F_OK);
+		
+		if (!dir.item1) {
+			return -ErrorCodes.EEXIST();
+		}
+		if (dir.item2 != KabiNodeType.DIRECTORY) {
+			return -ErrorCodes.ENOTDIR();
+		}
+		if (!((KabiDirectoryNode)dir.item3).subNodes().isEmpty()) {
+			return -ErrorCodes.ENOTEMPTY();
+		}
+		
+		pdir = getNode(nids.item2 == null ? findNodeByPath(Helper.parentPath(path)).item1 : nids.item2, Constant.W_OK);
+		
+		if (!pdir.item1) {
+			return -ErrorCodes.EACCES();
+		}
+		
+		dnode = (KabiDirectoryNode) pdir.item3;
+		subs = new LinkedList<Tuple2<ObjectId, String>>();
+		for (Tuple2<ObjectId, String> tp : dnode.subNodes()) {
+			if (!tp.item2.equals(Helper.nameOf(path))) {
+				subs.add(tp);
+			}
+		}
+		newoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
+		commit.patch(pdir.item3.id().oid(), newoid);
+		path2nodeCache.dirty(path);
+		path2nodeCache.dirty(Helper.parentPath(path));
 		return 0;
 	}
 }
