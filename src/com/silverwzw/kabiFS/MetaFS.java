@@ -2,15 +2,10 @@ package com.silverwzw.kabiFS;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.util.Collection;
 
 import org.apache.log4j.Logger;
-import org.bson.types.ObjectId;
 
-import com.mongodb.DB;
-import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit;
 import com.silverwzw.kabiFS.util.MountOptions;
-import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper;
 
 import net.fusejna.DirectoryFiller;
@@ -46,17 +41,9 @@ public abstract class MetaFS extends FuseFilesystem {
 		datastore = new KabiDBAdapter(options.mongoConn());
 	}
 
-	@Override
-	public void beforeMount(File mountPoint) {
-		// TODO Auto-generated method stub
-		
-	}
+	public final void beforeMount(File mountPoint) {}
 
-	@Override
-	public void afterUnmount(File mountPoint) {
-		// TODO Auto-generated method stub
-		
-	}
+	public final void afterUnmount(File mountPoint) {}
 
 	@Override
 	public int bmap(String path, FileInfoWrapper info) {
@@ -70,9 +57,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.ENOSYS();
 	}
 	
-	public final void beforeUnmount(File mountPoint) {
-		;
-	}
+	public final void beforeUnmount(File mountPoint) {}
 
 	public int fgetattr(String path, StatWrapper stat, FileInfoWrapper info) {
 		return getattr(path, stat);
@@ -163,7 +148,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.ENOSYS();
 	}
 
-	public void init() {}
+	public final void init() {}
 
 	@Override
 	public int link(String path, String target) {
@@ -184,15 +169,17 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.ENOSYS();
 	}
 
-	@Override
 	public int mkdir(String path, ModeWrapper mode) {
-		// TODO Auto-generated method stub
+		if (path.equals(Helper.buildPath(metaDirName))) {
+			return -ErrorCodes.EEXIST();
+		}
 		return 0;
 	}
 
-	@Override
-	public int mknod(String path, ModeWrapper mode, long dev) {
-		// TODO Auto-generated method stub
+	public final int mknod(String path, ModeWrapper mode, long dev) {
+		if (mode.type() != NodeType.FILE) {
+			return -ErrorCodes.EPERM();
+		}
 		return create(path, mode, null);
 	}
 
@@ -201,11 +188,9 @@ public abstract class MetaFS extends FuseFilesystem {
 		// TODO Auto-generated method stub
 		return 0;
 	}
-
-	@Override
+	
 	public int opendir(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
-		return 0;
+		return path.equals(Helper.buildPath(metaDirName)) ? 0 : -1;
 	}
 
 	@Override
@@ -232,9 +217,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		}
 	}
 
-	@Override
-	public int readlink(String path, ByteBuffer buffer, long size) {
-		// TODO Auto-generated method stub
+	public final int readlink(String path, ByteBuffer buffer, long size) {
 		return 0;
 	}
 
@@ -281,9 +264,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		return 0;
 	}
 
-	@Override
-	public int symlink(String path, String target) {
-		// TODO Auto-generated method stub
+	public final int symlink(String path, String target) {
 		return 0;
 	}
 

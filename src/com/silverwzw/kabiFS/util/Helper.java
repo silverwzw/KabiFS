@@ -48,6 +48,22 @@ public final class Helper {
 		}
 		return path;
 	}
+	/**
+	 * return parent path in string
+	 * @param path
+	 * @return parent path
+	 */
+	public static final String parentPath(String path) {
+		if (path == null || path.equals("") || path.equals(File.separator)) {
+			return File.separator;
+		}
+		int last;
+		last = path.lastIndexOf(File.separator);
+		if (last == -1 || last == 0) {
+			return File.separator;
+		}
+		return path.substring(0, last);
+	}
 
 	/**
 	 * check if the input is a valid commit name

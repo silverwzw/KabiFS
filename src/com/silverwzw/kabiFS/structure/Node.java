@@ -1,6 +1,7 @@
 package com.silverwzw.kabiFS.structure;
 
 import org.apache.log4j.Logger;
+import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -23,17 +24,21 @@ public abstract class Node {
 	
 	protected NodeId nid;
 	private DBObject dbo;
-	protected int counter;
 	protected KabiNodeType type;
 	
-	{
-		counter = -1;
+	protected Node(NodeId nid) {
+		this.nid = nid;
 		dbo = null;
+	}
+	
+	protected Node(Commit commit, DBObject dbo) {
+		this.dbo = dbo;
+		this.nid = commit.new NodeId((ObjectId) dbo.get("_id"));
 	}
 	
 	protected final DBObject dbo() {
 		if (dbo == null) {
-			dbo = this.commit().datastore().db().getCollection(nodeType2CollectionName(type)).findOne(new BasicDBObject("_id", nid.oid()));
+			dbo = this.commit().datastore().db().getCollection(type2CollectionName(type)).findOne(new BasicDBObject("_id", nid.oid()));
 		}
 		return dbo;
 	}
@@ -41,28 +46,14 @@ public abstract class Node {
 	public final NodeId id(){
 		return nid;
 	}
-	
-	public final int counter() {
-		if (counter < 0) {
-			counter = (Integer) dbo().get("counter");
-		}
-		return counter;
-	}
-
 
 	public final KabiNodeType type() {
 		return type;
 	}
 
-	public abstract Commit commit();
-
-	public final void updateCounter(int newCounter) {
-		commit().datastore().db().getCollection(nodeType2CollectionName(this.type()))
-			.update(new BasicDBObject("_id", nid.oid()), new BasicDBObject().append("$set", new BasicDBObject("counter", newCounter)));
-		counter = newCounter;
-	}
+	protected abstract Commit commit();
 	
-	public final static String nodeType2CollectionName(KabiNodeType type) {
+	public final static String type2CollectionName(KabiNodeType type) {
 		switch (type) {
 			case SUB:
 				return "subfile";
@@ -73,4 +64,5 @@ public abstract class Node {
 		}
 		return null;
 	}
+	
 }

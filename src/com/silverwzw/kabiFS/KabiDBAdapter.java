@@ -87,11 +87,11 @@ public class KabiDBAdapter {
 			}
 		}
 		
-		public final KabiDBAdapter datastore() {
+		protected final KabiDBAdapter datastore() {
 			return KabiDBAdapter.this;
 		}
 
-		public final ObjectId getActualOid(ObjectId oid) {
+		protected final ObjectId getActualOid(ObjectId oid) {
 			ObjectId objId;
 			objId = patches.get(oid);
 			return (objId == null) ? oid : objId;
@@ -149,14 +149,14 @@ public class KabiDBAdapter {
 					arcs.add(new BasicDBObject("obj", tuple.item1).append("name", tuple.item2));
 				}
 				
-				dirDBObj = new BasicDBObject("counter", 0)
+				dirDBObj = new BasicDBObject()
 					.append("gowner", gowner)
 					.append("owner", owner)
 					.append("mode", mode % 01000)
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
+					.getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
 				newObjId = (ObjectId) dirDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
@@ -174,14 +174,14 @@ public class KabiDBAdapter {
 					arcs.add(new BasicDBObject("obj", tuple.item1).append("offset", tuple.item2));
 				}
 				
-				fileDBObj = new BasicDBObject("counter", 0)
+				fileDBObj = new BasicDBObject()
 					.append("gowner", gowner)
 					.append("owner", owner)
 					.append("mode", mode % 01000)
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE)).insert(fileDBObj);
+					.getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE)).insert(fileDBObj);
 				newObjId = (ObjectId) fileDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
@@ -193,13 +193,13 @@ public class KabiDBAdapter {
 				
 				subDBObj = new BasicDBObject("counter", 0).append("data", bytes);
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB)).insert(subDBObj);
+					.getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB)).insert(subDBObj);
 				newObjId = (ObjectId) subDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
 			}
 
-			public final KabiDBAdapter datastore() {
+			protected final KabiDBAdapter datastore() {
 				return KabiPersistentCommit.this.datastore();
 			}
 			
@@ -243,7 +243,7 @@ public class KabiDBAdapter {
 				super(branchName);
 			}
 			
-			public final ObjectId getActualOid(ObjectId oid) {
+			protected final ObjectId getActualOid(ObjectId oid) {
 				ObjectId oidFromBase;
 				oidFromBase = KabiPersistentCommit.this.getActualOid(oid);
 				if (diffPatches.containsKey(oidFromBase)) {
@@ -340,7 +340,7 @@ public class KabiDBAdapter {
 						);
 			}
 
-			public final ObjectId getActualOid(ObjectId oid) {
+			protected final ObjectId getActualOid(ObjectId oid) {
 				return oid != null ? oid : (ObjectId) dbo.get("root");
 			}
 		}
@@ -356,7 +356,7 @@ public class KabiDBAdapter {
 				diffPatches = new HashMap<ObjectId, ObjectId>();
 			}
 
-			public ObjectId getActualOid(final ObjectId oid) {
+			protected ObjectId getActualOid(final ObjectId oid) {
 				ObjectId oidFromBase;
 				oidFromBase = KabiPersistentCommit.this.getActualOid(oid);
 				if (diffPatches.containsKey(oidFromBase)) {
@@ -374,9 +374,9 @@ public class KabiDBAdapter {
 				DB db;
 				DBCollection tree, file, sub;
 				db = KabiPersistentCommit.this.datastore().db();
-				tree = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY));
-				file = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE));
-				sub = db.getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB));
+				tree = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY));
+				file = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE));
+				sub = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB));
 				for (ObjectId oid : newObjIds) {
 					DBObject query;
 					query = new BasicDBObject("_id", oid);
@@ -546,7 +546,7 @@ public class KabiDBAdapter {
 		db.createCollection("tree", new BasicDBObject());
 		db.createCollection("commit", new BasicDBObject());
 		
-		dbo  = new BasicDBObject("counter", 1)
+		dbo  = new BasicDBObject()
 			.append("gowner", 0)
 			.append("owner", 0)
 			.append("mode", 0777)
@@ -578,15 +578,15 @@ public class KabiDBAdapter {
 	private final DBCollection[] collections() {
 		if (collections == null) {
 			collections = new DBCollection[] { // do not modify the order, getNodeDBO() depends on that
-				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.DIRECTORY)),
-				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.FILE)),
-				db().getCollection(Node.nodeType2CollectionName(Node.KabiNodeType.SUB))
+				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY)),
+				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE)),
+				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB))
 			};
 		}
 		return collections;
 	}
 
-	private final Tuple3<KabiNodeType, DBCollection, DBObject> getNodeDBO(ObjectId oid) {
+	final Tuple3<KabiNodeType, DBCollection, DBObject> getNodeDBO(ObjectId oid) {
 		DBObject query, queryResult;
 		
 		

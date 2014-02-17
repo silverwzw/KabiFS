@@ -12,7 +12,6 @@ import com.mongodb.DBObject;
 import com.silverwzw.kabiFS.KabiDBAdapter;
 import com.silverwzw.kabiFS.util.Tuple2;
 
-
 public abstract class Commit {
 	
 	@SuppressWarnings("serial")
@@ -27,13 +26,36 @@ public abstract class Commit {
 	protected String branch;
 	protected long timestamp;
 
-	public abstract ObjectId getActualOid(ObjectId oid);
-	public abstract KabiDBAdapter datastore();
+	protected abstract ObjectId getActualOid(ObjectId oid);
+	protected abstract KabiDBAdapter datastore();
 	
 	/**
 	 * NodeId is the id of the node, an inter-media between ObjectId and Node
 	 * @author silverwzw
 	 */
+
+	public final class NodeId implements Comparable<NodeId> {
+		private ObjectId objId;
+		public NodeId(ObjectId oid) {
+			objId = Commit.this.getActualOid(oid);
+		}
+		public final int compareTo(NodeId extnodeId) {
+			return objId.compareTo(extnodeId.objId);
+		}
+		/**
+		 * get the object id wrapped in node id
+		 * @return
+		 */
+		public final ObjectId oid() {
+			return objId;
+		}
+		public final int hashCode() {
+			return objId.hashCode();
+		}
+		public final boolean equals(Object o) {
+			return (o instanceof NodeId) ?  objId.equals(((NodeId) o).objId) : false;
+		}
+	}
 	
 	public final KabiDirectoryNode root() {
 		return new KabiDirectoryNode(new NodeId(null));
@@ -55,32 +77,12 @@ public abstract class Commit {
 		return new KabiDirectoryNode(nid);
 	}
 	
-	public final class NodeId implements Comparable<NodeId> {
-		private ObjectId objId;
-		protected NodeId(ObjectId oid) {
-			objId = Commit.this.getActualOid(oid);
-		}
-		public final int compareTo(NodeId extnodeId) {
-			return objId.compareTo(extnodeId.objId);
-		}
-		/**
-		 * get the object id wrapped in node id
-		 * @return
-		 */
-		public final ObjectId oid() {
-			return objId;
-		}
-		public final int hashCode() {
-			return objId.hashCode();
-		}
-		public final boolean equals(Object o) {
-			return (o instanceof NodeId) ?  objId.equals(((NodeId) o).objId) : false;
-		}
-	}
-	
 	public abstract class KabiNode extends Node {
 		protected KabiNode(NodeId nid) {
-			this.nid = nid;
+			super(nid);
+		}
+		protected KabiNode(DBObject dbo) {
+			super(Commit.this, dbo);
 		}
 		public final Commit commit() {
 			return Commit.this;
@@ -95,9 +97,12 @@ public abstract class Commit {
 			uid = gid = -1;
 			mode = -1;
 		}
-		
+
 		protected KabiNoneDataNode(NodeId nid) {
 			super(nid);
+		}
+		protected KabiNoneDataNode(DBObject dbo) {
+			super(dbo);
 		}
 		public final long uid() {
 			if (uid < 0) {
@@ -125,8 +130,11 @@ public abstract class Commit {
 			type = KabiNodeType.DIRECTORY;
 			subNodes = null;
 		}
-		protected KabiDirectoryNode(NodeId nid) {
+		public KabiDirectoryNode(NodeId nid) {
 			super(nid);
+		}
+		public KabiDirectoryNode(DBObject dbo) {
+			super(dbo);
 		}
 		public Collection<Tuple2<ObjectId, String>> subNodes() {
 			if (subNodes == null) {
@@ -157,8 +165,11 @@ public abstract class Commit {
 			subNodes = null;
 			size = -1;
 		}
-		protected KabiFileNode(NodeId nid) {
+		public KabiFileNode(NodeId nid) {
 			super(nid);
+		}
+		public KabiFileNode(DBObject dbo) {
+			super(dbo);
 		}
 		public LinkedList<Tuple2<ObjectId, Long>> subNodes() {
 			if (subNodes == null) {
@@ -193,8 +204,11 @@ public abstract class Commit {
 			data = null;
 			type = KabiNodeType.SUB;
 		}
-		protected KabiSubNode(NodeId nid) {
+		public KabiSubNode(NodeId nid) {
 			super(nid);
+		}
+		public KabiSubNode(DBObject dbo) {
+			super(dbo);
 		}
 		public final byte[] data(){
 			if (data == null) {
