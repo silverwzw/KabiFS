@@ -57,41 +57,51 @@ public class KabiFS extends MetaFS {
 		commit = datastore.getPersistentCommit(options.baseCommit()).createShadow();
 	}
 
-	private final Tuple3<Boolean, Node.KabiNodeType , Node> getNode(NodeId nid, int access) {
-		Tuple3<Boolean, Node.KabiNodeType , Node> tp3;
+	private final static class AccessNode extends Tuple2<Boolean, Node> {
+		public final boolean permission() {
+			return super.item1 == null ? false : super.item1;
+		}
+		public final Node node() {
+			return super.item2;
+		}
+	}
+	
+	private final AccessNode getNode(NodeId nid, int access) {
+		AccessNode an;
+		KabiNodeType type;
 		
-		tp3 = new Tuple3<Boolean, Node.KabiNodeType , Node>();
+		
+		an = new AccessNode();
 		
 		if (nid == null) {
-			tp3.item1 = false;
-			tp3.item2 = null;
-			tp3.item3 = null;
-			return tp3;
+			an.item1 = false;
+			an.item2 = null;
+			return an;
 		}
 		
 		Tuple3<KabiNodeType, DBCollection, DBObject> dboinfo;
 		
 		dboinfo = commit.datastore().getNodeDBO(nid.oid());
-		tp3.item1 = false;
-		tp3.item2 = dboinfo.item1;
-		switch (tp3.item2) {
+		an.item1 = false;
+		type = dboinfo.item1;
+		switch (type) {
 			case FILE:
-				tp3.item3 = commit.new KabiFileNode(dboinfo.item3);
+				an.item2 = commit.new KabiFileNode(dboinfo.item3);
 				break;
 			case DIRECTORY:
-				tp3.item3 = commit.new KabiDirectoryNode(dboinfo.item3);
+				an.item2 = commit.new KabiDirectoryNode(dboinfo.item3);
 				break;
 			case SUB:
-				tp3.item3 = commit.new KabiSubNode(dboinfo.item3);
-				tp3.item1 = true;
-				return tp3;
+				an.item2 = commit.new KabiSubNode(dboinfo.item3);
+				an.item1 = true;
+				return an;
 		}
 
 		KabiNoneDataNode node;
 		StructFuseContext context;
 		context = getFuseContext();
 		
-		node = (KabiNoneDataNode) tp3.item3;
+		node = (KabiNoneDataNode) an.item2;
 		
 		if (
 				((access & node.mode()) == access)
@@ -100,37 +110,46 @@ public class KabiFS extends MetaFS {
 				||
 				(context.uid.longValue() == node.uid() && ((access & (node.mode()>>6)) == access))
 			){
-			tp3.item1 = true;;
+			an.item1 = true;;
 		} else {
-			tp3.item1 = false;
+			an.item1 = false;
 		}
 		
-		return tp3;
+		return an;
 	}
 	
-	private Tuple2<NodeId, NodeId> findNodeByPath(String path){
+	private final static class NodeAndParent extends Tuple2<NodeId, NodeId> {
+		public final NodeId nodeId() {
+			return super.item1;
+		}
+		public final NodeId parentId() {
+			return super.item2;
+		}
+	}
+	
+	private NodeAndParent findNodeByPath(String path){
 
-		Tuple2<NodeId, NodeId> tp2;
+		NodeAndParent np;
 		
-		tp2 = new Tuple2<NodeId, NodeId>();
+		np = new NodeAndParent();
 		
-		tp2.item1 = path2nodeCache.get(path);
+		np.item1 = path2nodeCache.get(path);
 		if (!path.equals(Helper.buildPath())) {
-			tp2.item2 = path2nodeCache.get(Helper.parentPath(path));
+			np.item2 = path2nodeCache.get(Helper.parentPath(path));
 		} else {
-			tp2.item2 = null;
+			np.item2 = null;
 		}
 		
-		if (tp2.item1 != null) {
-			return tp2;
+		if (np.item1 != null) {
+			return np;
 		}
 
-		tp2.item1 = commit.root().id();
-		tp2.item2 = null;
+		np.item1 = commit.root().id();
+		np.item2 = null;
 		
 		if (path.equals(Helper.buildPath())) {
-			path2nodeCache.put(path, tp2.item1);
-			return tp2;
+			path2nodeCache.put(path, np.item1);
+			return np;
 		}
 		
 		String[] comps;
@@ -139,51 +158,59 @@ public class KabiFS extends MetaFS {
 		
 		for (int i = 1; i < comps.length; i++) {
 			DBObject dbo;
-			dbo = datastore.db().getCollection(Node.type2CollectionName(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", tp2.item1.oid())); 
+			dbo = datastore.db().getCollection(fsoptions.collection_name(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", np.item1.oid())); 
 			if (dbo == null) {
 				return null;
 			}
 			KabiDirectoryNode dnode;
 			dnode = commit.new KabiDirectoryNode(dbo);
-			tp2.item2 = tp2.item1;
-			tp2.item1 = null;
+			np.item2 = np.item1;
+			np.item1 = null;
 			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
 				if (sub.item2.equals(comps[i])) {
-					tp2.item1 = commit.getNodeId(sub.item1);
+					np.item1 = commit.getNodeId(sub.item1);
 					break;
 				}
 			}
-			if (tp2.item1 == null) {
-				return tp2;
+			if (np.item1 == null) {
+				return np;
 			}
 		}
 		
-		path2nodeCache.put(path, tp2.item1);
-		return tp2;
+		path2nodeCache.put(path, np.item1);
+		return np;
 	}
 	
-	@Override
-	public int getattr(final String path, final StatWrapper stat)
+	public final boolean isFull() {
+		return ((Number) commit.datastore().db().getStats().get("fileSize")).longValue()
+				>= fsoptions.max_volumn();
+	}
+	
+	public final int getattr(final String path, final StatWrapper stat)
 	{
-		if (path.equals(Helper.buildPath())) { // Root directory
-			stat.setMode(NodeType.DIRECTORY);
+		commit.readLock().lock();
+		try {
+			if (path.equals(Helper.buildPath())) { // Root directory
+				stat.setMode(NodeType.DIRECTORY);
+				return 0;
+			}
+			if (super.getattr(path, stat) >= 0) {
+				return 0;
+			}
+			
+			NodeId nid;
+			nid = findNodeByPath(path).nodeId();
+			if (nid == null) {
+				return -ErrorCodes.ENOENT();
+			}
+			Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).node());
 			return 0;
+		} finally {
+			commit.readLock().unlock();
 		}
-		if (super.getattr(path, stat) >= 0) {
-			return 0;
-		}
-		
-		NodeId nid;
-		nid = findNodeByPath(path).item1;
-		if (nid == null) {
-			return -ErrorCodes.ENOENT();
-		}
-		Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).item3);
-		return 0;
 	}
 
-	@Override
-	public int read(final String path, final ByteBuffer buffer, final long size, final long offset, final FileInfoWrapper info)
+	public final int read(final String path, final ByteBuffer buffer, final long size, final long offset, final FileInfoWrapper info)
 	{
 		int superRead;
 		superRead = super.read(path, buffer, size, offset, info);
@@ -191,36 +218,41 @@ public class KabiFS extends MetaFS {
 			return superRead;
 		}
 		
-		NodeId nid;
-		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
+		commit.readLock().lock();
 		
-		nid = findNodeByPath(path).item1;
-		nodeinfo = getNode(nid, Constant.R_OK);
-		if (nid == null || nodeinfo.item2 != KabiNodeType.FILE) {
-			return -ErrorCodes.ENOENT();
-		}
-		if (!nodeinfo.item1) {
-			return -ErrorCodes.EACCES();
-		}
-		int byte_count = 0;
-		for (Tuple2<ObjectId, Long> tuple : ((KabiFileNode) nodeinfo.item3).subNodes()) {
-			if (tuple.item2 <= offset) {
-				continue;
+		try {
+			NodeId nid;
+			AccessNode nodeinfo;
+			
+			nid = findNodeByPath(path).nodeId();
+			nodeinfo = getNode(nid, Constant.R_OK);
+			if (nid == null || nodeinfo.node().type() != KabiNodeType.FILE) {
+				return -ErrorCodes.ENOENT();
 			}
-			byte[] data;
-			data = commit.getSubNode(commit.getNodeId(tuple.item1)).data();
-			if (tuple.item2 < offset + size) {
-				buffer.put(data);
-				byte_count += data.length;
-			} else {
-				for (int i = 0; i < data.length && byte_count < size; i++, byte_count++) {
-					buffer.put(data[i]);
+			if (!nodeinfo.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+			int byte_count = 0;
+			for (Tuple2<ObjectId, Long> tuple : ((KabiFileNode) nodeinfo.node()).subNodes()) {
+				if (tuple.item2 <= offset) {
+					continue;
 				}
-				break;
+				byte[] data;
+				data = commit.getSubNode(commit.getNodeId(tuple.item1)).data();
+				if (tuple.item2 < offset + size) {
+					buffer.put(data);
+					byte_count += data.length;
+				} else {
+					for (int i = 0; i < data.length && byte_count < size; i++, byte_count++) {
+						buffer.put(data[i]);
+					}
+					break;
+				}
 			}
+			return byte_count;
+		} finally {
+			commit.readLock().unlock();
 		}
-		
-		return byte_count;
 	}
 
 	public final int opendir(String path, FileInfoWrapper info) {
@@ -228,18 +260,24 @@ public class KabiFS extends MetaFS {
 			return 0;
 		}
 
-		NodeId nid;
-		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
+		commit.readLock().lock();
 		
-		nid = findNodeByPath(path).item1;
-		
-		if (nid == null) {
-			return -ErrorCodes.ENOENT();
+		try {
+			NodeId nid;
+			AccessNode nodeinfo;
+			
+			nid = findNodeByPath(path).nodeId();
+			
+			if (nid == null) {
+				return -ErrorCodes.ENOENT();
+			}
+			
+			nodeinfo = getNode(nid, Constant.R_OK);
+			
+			return nodeinfo.permission() ? 0 : -ErrorCodes.EACCES();
+		} finally {
+			commit.readLock().unlock();
 		}
-		
-		nodeinfo = getNode(nid, Constant.R_OK);
-		
-		return nodeinfo.item1 ? 0 : -ErrorCodes.EACCES();
 	}
 	
 	public final int readdir(final String path, final DirectoryFiller filler)
@@ -251,24 +289,30 @@ public class KabiFS extends MetaFS {
 			return 0;
 		}
 
-		NodeId nid;
-		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
 		
-		nid = findNodeByPath(path).item1;
-		nodeinfo = getNode(nid, Constant.R_OK);
-		if (nid == null) {
-			return -ErrorCodes.ENOENT();
+		commit.readLock().lock();
+		
+		try {
+			NodeId nid;
+			AccessNode nodeinfo;
+			nid = findNodeByPath(path).nodeId();
+			nodeinfo = getNode(nid, Constant.R_OK);
+			if (nid == null) {
+				return -ErrorCodes.ENOENT();
+			}
+			if (nodeinfo.node().type() != KabiNodeType.DIRECTORY) {
+				return -ErrorCodes.ENOTDIR();
+			}
+			if (!nodeinfo.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+			for (Tuple2<ObjectId, String> sub : ((KabiDirectoryNode) nodeinfo.node()).subNodes()) {
+				filler.add(sub.item2);
+			}
+			return 0;
+		} finally {
+			commit.readLock().unlock();
 		}
-		if (nodeinfo.item2 != KabiNodeType.DIRECTORY) {
-			return -ErrorCodes.ENOTDIR();
-		}
-		if (!nodeinfo.item1) {
-			return -ErrorCodes.EACCES();
-		}
-		for (Tuple2<ObjectId, String> sub : ((KabiDirectoryNode) nodeinfo.item3).subNodes()) {
-			filler.add(sub.item2);
-		}
-		return 0;
 	}
 	
 	public final void destroy() {
@@ -279,253 +323,282 @@ public class KabiFS extends MetaFS {
 	
 	public final int chmod(String path, ModeWrapper mode) {
 
-		NodeId nid;
-		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
-		
-		nid = findNodeByPath(path).item1;
-		
-		if (nid == null) {
-			return -ErrorCodes.ENOENT();
-		}
-		
-		nodeinfo = getNode(nid, Constant.W_OK);
-
-		if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.item1)) {
-			return -ErrorCodes.EACCES();
-		}
-		
-		ObjectId newObjId;
-		
-		if (nodeinfo.item2 == KabiNodeType.DIRECTORY) {
-			KabiDirectoryNode dirNode;
+		commit.writeLock().lock();
+		try {
+			NodeId nid;
+			AccessNode nodeinfo;
 			
-			dirNode = (KabiDirectoryNode) nodeinfo.item3;
+			nid = findNodeByPath(path).nodeId();
 			
-			if (dirNode.mode() == (int) (mode.mode() % 01000)) { // no change
-				return 0;
+			if (nid == null) {
+				return -ErrorCodes.ENOENT();
 			}
 			
-			newObjId = commit.addDirNode2db(
-					dirNode.uid(), 
-					dirNode.gid(),
-					(int) mode.mode(),
-					dirNode.subNodes()
-					);
-		} else if (nodeinfo.item2 == KabiNodeType.FILE) {
-			KabiFileNode fileNode;
-
-			fileNode = (KabiFileNode) nodeinfo.item3;
-			
-			if (fileNode.mode() == (int) (mode.mode() % 01000)) { // no change
-				return 0;
+			nodeinfo = getNode(nid, Constant.F_OK);
+	
+			if (!(getFuseContext().uid.longValue() == 0 || getFuseContext().uid.longValue() == ((KabiNoneDataNode)nodeinfo.node()).uid())) {
+				return -ErrorCodes.EACCES();
 			}
 			
-			newObjId = commit.addFileNode2db(
-					fileNode.uid(), 
-					fileNode.gid(),
-					(int) mode.mode(),
-					fileNode.subNodes()
-					);
-		} else {
-			return -1;
+			ObjectId newObjId;
+			
+			if (nodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				KabiDirectoryNode dirNode;
+				
+				dirNode = (KabiDirectoryNode) nodeinfo.node();
+				
+				if (dirNode.mode() == (int) (mode.mode() % 01000)) { // no change
+					return 0;
+				}
+				
+				newObjId = commit.addDirNode2db(
+						dirNode.uid(), 
+						dirNode.gid(),
+						(int) mode.mode(),
+						dirNode.subNodes()
+						);
+			} else if (nodeinfo.node().type() == KabiNodeType.FILE) {
+				KabiFileNode fileNode;
+	
+				fileNode = (KabiFileNode) nodeinfo.node();
+				
+				if (fileNode.mode() == (int) (mode.mode() % 01000)) { // no change
+					return 0;
+				}
+				
+				newObjId = commit.addFileNode2db(
+						fileNode.uid(), 
+						fileNode.gid(),
+						(int) mode.mode(),
+						fileNode.subNodes()
+						);
+			} else {
+				return -1;
+			}
+			
+			commit.patch(nid.oid(), newObjId);
+			path2nodeCache.dirty(path);
+			return 0;
+		} finally {
+			commit.writeLock().unlock();
 		}
-		
-		commit.patch(nid.oid(), newObjId);
-		path2nodeCache.dirty(path);
-		return 0;
 	}
 
 	public final int chown(String path, long uid, long gid) {
-		NodeId nid;
-		Tuple3<Boolean, KabiNodeType, Node> nodeinfo;
+		commit.writeLock().lock();
 		
-		nid = findNodeByPath(path).item1;
-		
-		if (nid == null) {
-			return -ErrorCodes.ENOENT();
-		}
-		
-		nodeinfo = getNode(nid, Constant.W_OK);
-
-		if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.item1)) {
-			return -ErrorCodes.EACCES();
-		}
-
-		ObjectId newObjId;
-		
-		if (nodeinfo.item2 == KabiNodeType.DIRECTORY) {
-			KabiDirectoryNode dirNode;
+		try {
+			NodeId nid;
+			AccessNode nodeinfo;
 			
-			dirNode = (KabiDirectoryNode) nodeinfo.item3;
+			nid = findNodeByPath(path).nodeId();
 			
-			if (dirNode.uid() == uid && dirNode.gid() == gid) { // no change
-				return 0;
+			if (nid == null) {
+				return -ErrorCodes.ENOENT();
 			}
 			
-			newObjId = commit.addDirNode2db(
-					uid, 
-					gid,
-					dirNode.mode(),
-					dirNode.subNodes()
-					);
-		} else if (nodeinfo.item2 == KabiNodeType.FILE) {
-			KabiFileNode fileNode;
+			nodeinfo = getNode(nid, Constant.W_OK);
+	
+			if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.item1)) {
+				return -ErrorCodes.EACCES();
+			}
+	
+			ObjectId newObjId;
 			
-			fileNode = (KabiFileNode) nodeinfo.item3;
-			
-			if (fileNode.uid() == uid && fileNode.gid() == gid) { // no change
-				return 0;
+			if (nodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				KabiDirectoryNode dirNode;
+				
+				dirNode = (KabiDirectoryNode) nodeinfo.node();
+				
+				if (dirNode.uid() == uid && dirNode.gid() == gid) { // no change
+					return 0;
+				}
+				
+				newObjId = commit.addDirNode2db(
+						uid, 
+						gid,
+						dirNode.mode(),
+						dirNode.subNodes()
+						);
+			} else if (nodeinfo.node().type() == KabiNodeType.FILE) {
+				KabiFileNode fileNode;
+				
+				fileNode = (KabiFileNode) nodeinfo.node();
+				
+				if (fileNode.uid() == uid && fileNode.gid() == gid) { // no change
+					return 0;
+				}
+				
+				newObjId = commit.addFileNode2db(
+						uid, 
+						gid,
+						fileNode.mode(),
+						fileNode.subNodes()
+						);
+			} else {
+				return -1;
 			}
 			
-			newObjId = commit.addFileNode2db(
-					uid, 
-					gid,
-					fileNode.mode(),
-					fileNode.subNodes()
-					);
-		} else {
-			return -1;
+			commit.patch(nid.oid(), newObjId);
+			path2nodeCache.dirty(path);
+			return 0;
+		} finally {
+			commit.writeLock().unlock();
 		}
-		
-		commit.patch(nid.oid(), newObjId);
-		path2nodeCache.dirty(path);
-		return 0;
 	}
 	
 	public final int access(String path, int access) {
-		int superAccess;
-		superAccess = super.access(path, access);
-		if (superAccess != -ErrorCodes.EEXIST()) {
-			return superAccess;
-		}
+		commit.readLock().lock();
 		
-		NodeId nid;
-		
-		nid = findNodeByPath(path).item1;
-		
-		if (nid == null) {
-			if (access == Constant.F_OK) {
-				return -1;
-			} else {
-				return -ErrorCodes.ENOENT();
+		try {
+			int superAccess;
+			superAccess = super.access(path, access);
+			if (superAccess != -ErrorCodes.EEXIST()) {
+				return superAccess;
 			}
+			
+			NodeId nid;
+			
+			nid = findNodeByPath(path).nodeId();
+			
+			if (nid == null) {
+				if (access == Constant.F_OK) {
+					return -1;
+				} else {
+					return -ErrorCodes.ENOENT();
+				}
+			}
+			
+			return getNode(nid, access).permission() ? 0 : -1 ;
+			
+		} finally {
+			commit.readLock().unlock();
 		}
-		
-		return getNode(nid, access).item1 ? 0 : -1 ;
 	}
 	
 	public final int mkdir(String path, ModeWrapper mode) {
-		int superMkdir;
-		superMkdir = super.mkdir(path, mode);
-		if (superMkdir != 0) {
-			return superMkdir;
+		commit.writeLock().lock();
+		
+		try {
+			int superMkdir;
+			superMkdir = super.mkdir(path, mode);
+			if (superMkdir != 0) {
+				return superMkdir;
+			}
+			
+			if (findNodeByPath(path).nodeId() != null) {
+				return -ErrorCodes.EEXIST();
+			}
+			
+			if (isFull()) {
+				return -ErrorCodes.ENOSPC();
+			}
+			
+			String parentPath;
+			StructFuseContext context;
+			ObjectId newDir, newParent;
+			NodeId parentNid;
+			KabiDirectoryNode parent;
+			AccessNode an;
+			
+			parentPath = Helper.parentPath(path);
+			context = getFuseContext();
+			parentNid = findNodeByPath(parentPath).nodeId();
+			
+			if (parentNid == null) {
+				mkdir(parentPath, mode);
+			}
+			
+			an = getNode(parentNid, Constant.W_OK);
+			
+			if (!an.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+	
+			Collection<Tuple2<ObjectId, String>> subs;
+			
+			parent = (KabiDirectoryNode) an.node();
+			subs = new LinkedList<Tuple2<ObjectId, String>>(parent.subNodes());
+			
+			newDir = commit.addDirNode2db(
+					context.uid.longValue(), 
+					context.gid.longValue(), 
+					(int)(mode.mode() % 01000), 
+					new ArrayList<Tuple2<ObjectId, String>>(0)
+					);
+			
+			subs.add(new Tuple2<ObjectId, String>(newDir, Helper.nameOf(path)));
+			
+			newParent = commit.addDirNode2db(
+					parent.uid(),
+					parent.gid(), 
+					parent.mode(),
+					subs);
+			
+			commit.patch(parentNid.oid(), newParent);
+			path2nodeCache.dirty(parentPath);
+			return 0;
+			
+		} finally {
+			commit.writeLock().lock();
 		}
-		
-		if (findNodeByPath(path).item1 != null) {
-			return -ErrorCodes.EEXIST();
-		}
-		
-		String parentPath;
-		StructFuseContext context;
-		ObjectId newDir, newParent;
-		NodeId parentNid;
-		KabiDirectoryNode parent;
-		Tuple3<Boolean, KabiNodeType, Node> tp3;
-		
-		parentPath = Helper.parentPath(path);
-		context = getFuseContext();
-		parentNid = findNodeByPath(parentPath).item1;
-		
-		if (parentNid == null) {
-			mkdir(parentPath, mode);
-		}
-		
-		tp3 = getNode(parentNid, Constant.W_OK);
-		
-		if (!tp3.item1) {
-			return -ErrorCodes.EACCES();
-		}
-
-		Collection<Tuple2<ObjectId, String>> subs;
-		
-		parent = (KabiDirectoryNode) tp3.item3;
-		subs = new LinkedList<Tuple2<ObjectId, String>>(parent.subNodes());
-		
-		newDir = commit.addDirNode2db(
-				context.uid.longValue(), 
-				context.gid.longValue(), 
-				(int)(mode.mode() % 01000), 
-				new ArrayList<Tuple2<ObjectId, String>>(0)
-				);
-		
-		Tuple2<ObjectId, String> newDirTp2;
-		
-		newDirTp2 = new Tuple2<ObjectId, String>();
-		newDirTp2.item1 = newDir;
-		newDirTp2.item2 = Helper.nameOf(path);
-		
-		subs.add(newDirTp2);
-		
-		newParent = commit.addDirNode2db(
-				parent.uid(),
-				parent.gid(), 
-				parent.mode(),
-				subs);
-		
-		commit.patch(parentNid.oid(), newParent);
-		path2nodeCache.dirty(parentPath);
-		return 0;
 	}
+	
 	public final int unlink(String path) {
 		int superUnlink;
 		superUnlink = super.unlink(path);
 		if (superUnlink != ErrorCodes.EEXIST()) {
 			return superUnlink;
 		}
-		
-		NodeId fileNid, parentNid;
-		Tuple3<Boolean, KabiNodeType, Node> fnodeinfo, pnodeinfo;
-		Tuple2<NodeId, NodeId> tp2;
-		String ppath;
-		KabiDirectoryNode dnode;
-		Collection<Tuple2<ObjectId, String>> subs;
-		ObjectId newpoid;
-		
-		tp2 = findNodeByPath(path);
-		fileNid = tp2.item1;
-		if (fileNid == null) {
-			return 0;
-		}
-		
-		ppath = Helper.parentPath(path);
-		parentNid = tp2.item2 == null ? findNodeByPath(ppath).item1 : tp2.item2;
-		
-		fnodeinfo = getNode(fileNid, Constant.F_OK);
-		pnodeinfo = getNode(parentNid, Constant.W_OK);
-		
-		if (fnodeinfo.item2 == KabiNodeType.DIRECTORY) {
-			return ErrorCodes.EISDIR();
-		}
-		if (!pnodeinfo.item1) {
-			return ErrorCodes.EACCES();
-		}
-		
-		dnode = (KabiDirectoryNode) pnodeinfo.item3;
-		
-		subs = new LinkedList<Tuple2<ObjectId, String>>();
-		
-		for (Tuple2<ObjectId, String> en : dnode.subNodes()) {
-			if (!en.item2.equals(Helper.nameOf(path))) {
-				subs.add(en);
+		commit.writeLock().lock();
+		try {
+			NodeId fileNid, parentNid;
+			AccessNode fnodeinfo, pnodeinfo;
+			NodeAndParent n2;
+			String ppath;
+			KabiDirectoryNode dnode;
+			Collection<Tuple2<ObjectId, String>> subs;
+			ObjectId newpoid;
+			
+			n2 = findNodeByPath(path);
+			fileNid = n2.nodeId();
+			if (fileNid == null) {
+				return 0;
 			}
+			
+			ppath = Helper.parentPath(path);
+			parentNid = n2.parentId() == null ? findNodeByPath(ppath).nodeId() : n2.parentId();
+			
+			fnodeinfo = getNode(fileNid, Constant.F_OK);
+			pnodeinfo = getNode(parentNid, Constant.W_OK);
+			
+			if (fnodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				return ErrorCodes.EISDIR();
+			}
+			if (!pnodeinfo.permission()) {
+				return ErrorCodes.EACCES();
+			}
+			
+			dnode = (KabiDirectoryNode) pnodeinfo.node();
+			
+			subs = new LinkedList<Tuple2<ObjectId, String>>();
+			
+			for (Tuple2<ObjectId, String> en : dnode.subNodes()) {
+				if (!en.item2.equals(Helper.nameOf(path))) {
+					subs.add(en);
+				}
+			}
+			
+			newpoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
+			commit.patch(parentNid.oid(), newpoid);
+			
+			path2nodeCache.dirty(ppath);
+			commit.try2remove(fileNid.oid());
+			
+			return 0;
+		} finally {
+			commit.writeLock().unlock();
 		}
-		
-		newpoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
-		commit.patch(parentNid.oid(), newpoid);
-		
-		path2nodeCache.dirty(ppath);
-		
-		return 0;
 	}
 	
 	public final int rmdir(String path) {
@@ -539,43 +612,166 @@ public class KabiFS extends MetaFS {
 			return -ErrorCodes.EFAULT();
 		}
 		
-		Tuple2<NodeId, NodeId> nids;
-		Tuple3<Boolean, KabiNodeType, Node> dir, pdir;
-		KabiDirectoryNode dnode;
-		List<Tuple2<ObjectId, String>> subs;
-		ObjectId newoid;
+		commit.writeLock().lock();
 		
-		nids = findNodeByPath(path);
-		
-		dir = getNode(nids.item1, Constant.F_OK);
-		
-		if (!dir.item1) {
-			return -ErrorCodes.EEXIST();
-		}
-		if (dir.item2 != KabiNodeType.DIRECTORY) {
-			return -ErrorCodes.ENOTDIR();
-		}
-		if (!((KabiDirectoryNode)dir.item3).subNodes().isEmpty()) {
-			return -ErrorCodes.ENOTEMPTY();
-		}
-		
-		pdir = getNode(nids.item2 == null ? findNodeByPath(Helper.parentPath(path)).item1 : nids.item2, Constant.W_OK);
-		
-		if (!pdir.item1) {
-			return -ErrorCodes.EACCES();
-		}
-		
-		dnode = (KabiDirectoryNode) pdir.item3;
-		subs = new LinkedList<Tuple2<ObjectId, String>>();
-		for (Tuple2<ObjectId, String> tp : dnode.subNodes()) {
-			if (!tp.item2.equals(Helper.nameOf(path))) {
-				subs.add(tp);
+		try {
+			
+			NodeAndParent nids;
+			AccessNode dir, pdir;
+			KabiDirectoryNode dnode;
+			List<Tuple2<ObjectId, String>> subs;
+			ObjectId newoid;
+			
+			nids = findNodeByPath(path);
+			
+			dir = getNode(nids.nodeId(), Constant.F_OK);
+			
+			if (!dir.permission()) {
+				return -ErrorCodes.EEXIST();
 			}
+			if (dir.node().type() != KabiNodeType.DIRECTORY) {
+				return -ErrorCodes.ENOTDIR();
+			}
+			if (!((KabiDirectoryNode)dir.node()).subNodes().isEmpty()) {
+				return -ErrorCodes.ENOTEMPTY();
+			}
+			
+			pdir = getNode(nids.parentId() == null ? findNodeByPath(Helper.parentPath(path)).nodeId() : nids.parentId(), Constant.W_OK);
+			
+			if (!pdir.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+			
+			dnode = (KabiDirectoryNode) pdir.node();
+			subs = new LinkedList<Tuple2<ObjectId, String>>();
+			for (Tuple2<ObjectId, String> tp : dnode.subNodes()) {
+				if (!tp.item2.equals(Helper.nameOf(path))) {
+					subs.add(tp);
+				}
+			}
+			newoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
+			commit.patch(pdir.node().id().oid(), newoid);
+			path2nodeCache.dirty(path);
+			path2nodeCache.dirty(Helper.parentPath(path));
+			commit.try2remove(nids.nodeId().oid());
+			return 0;
+		} finally {
+			commit.writeLock().unlock();
 		}
-		newoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
-		commit.patch(pdir.item3.id().oid(), newoid);
-		path2nodeCache.dirty(path);
-		path2nodeCache.dirty(Helper.parentPath(path));
-		return 0;
+	}
+	
+	public final int rename(String path, String newName) {
+
+		int superRename;
+		superRename = super.rename(path, newName);
+		if (superRename != -ErrorCodes.EEXIST()) {
+			return superRename;
+		}
+		
+		if (path.equals(newName)) {
+			return 0;
+		}
+		
+		if (path.equals(Helper.buildPath()) || newName.equals(Helper.buildPath())) {
+			return -ErrorCodes.EBUSY();
+		}
+		
+		if (newName.startsWith(path) && newName.charAt(path.length()) == File.separatorChar) {
+			return -ErrorCodes.EINVAL();
+		}
+
+		if (isFull()) {
+			return -ErrorCodes.ENOSPC();
+		}
+		
+		commit.writeLock().lock();
+		
+		try {
+			NodeAndParent nids;
+			AccessNode ps, s, pt, t;
+			
+			nids = findNodeByPath(path);
+			
+			s = getNode(nids.nodeId(), Constant.F_OK);
+			ps = getNode(nids.parentId() == null ? findNodeByPath(Helper.parentPath(path)).nodeId(): nids.parentId(), Constant.W_OK + Constant.X_OK);
+			
+			nids = findNodeByPath(newName);
+			
+			t = getNode(nids.nodeId(), Constant.F_OK); 
+			pt = getNode(nids.parentId() == null ? findNodeByPath(Helper.parentPath(newName)).nodeId() : nids.parentId(), Constant.W_OK + Constant.X_OK);
+			
+			
+			if (!s.permission()) {
+				return -ErrorCodes.ENOENT();
+			}
+			
+			if ((!ps.permission()) || !pt.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+			
+			if (t.permission()) {
+				if (t.node().type() == KabiNodeType.DIRECTORY && s.node().type() != KabiNodeType.DIRECTORY) {
+					return -ErrorCodes.EISDIR(); 
+				}
+				if (t.node().type() != KabiNodeType.DIRECTORY && s.node().type() == KabiNodeType.DIRECTORY) {
+					return -ErrorCodes.ENOTDIR(); 
+				}
+				if (t.node().type() == KabiNodeType.DIRECTORY && !((KabiDirectoryNode)t.node()).subNodes().isEmpty()) {
+					return -ErrorCodes.ENOTEMPTY();
+				}
+			}
+			
+			KabiDirectoryNode ptn, psn;
+			
+			ptn = (KabiDirectoryNode) pt.node();
+			psn = (KabiDirectoryNode) ps.node();
+			
+			if (t.permission()) {// target exist
+				Collection<Tuple2<ObjectId, String>> subnodes;
+				subnodes = new LinkedList<Tuple2<ObjectId, String>>();
+				
+				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
+					if (!en.item2.equals(Helper.nameOf(path))) {
+						subnodes.add(en);
+					}
+				}
+				
+				ObjectId newps;
+				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), subnodes);
+				
+				path2nodeCache.dirty(path);
+				path2nodeCache.dirty(newName);
+				commit.patch(psn.id().oid(), newps);
+				commit.patch(t.node().id().oid(), s.node().id().oid());
+				commit.try2remove(t.node().id().oid());
+				commit.try2remove(psn.id().oid());
+			} else {
+				Collection<Tuple2<ObjectId, String>> subnodes_ps, subnodes_pt;
+				subnodes_ps = new LinkedList<Tuple2<ObjectId, String>>();
+				subnodes_pt = new LinkedList<Tuple2<ObjectId, String>>();
+				
+				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
+					if (!en.item2.equals(Helper.nameOf(path))) {
+						subnodes_ps.add(en);
+					}
+				}
+				
+				subnodes_pt.addAll(ptn.subNodes());
+				subnodes_pt.add(new Tuple2<ObjectId, String>(s.node().id().oid(), Helper.nameOf(newName)));
+	
+				path2nodeCache.dirty(path);
+				ObjectId newps, newpt;
+				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), subnodes_ps);
+				newpt = commit.addDirNode2db(ptn.uid(), ptn.gid(), ptn.mode(), subnodes_pt);
+				commit.patch(ps.node().id().oid(), newps);
+				commit.patch(pt.node().id().oid(), newpt);
+				commit.try2remove(ps.node().id().oid());
+				commit.try2remove(pt.node().id().oid());
+				
+			}
+			return 0;
+		} finally {
+			commit.writeLock().unlock();;
+		}
 	}
 }

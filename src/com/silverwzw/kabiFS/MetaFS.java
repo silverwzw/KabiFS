@@ -6,6 +6,7 @@ import java.nio.ByteBuffer;
 import org.apache.log4j.Logger;
 
 import com.silverwzw.kabiFS.util.Constant;
+import com.silverwzw.kabiFS.util.FSOptions;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Helper;
 
@@ -37,10 +38,12 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	protected final MountOptions mntoptions;
 	protected final KabiDBAdapter datastore;
+	public final FSOptions fsoptions;
 	
 	public MetaFS(MountOptions options) {
-		this.mntoptions = options; 
+		mntoptions = options; 
 		datastore = new KabiDBAdapter(options.mongoConn());
+		fsoptions = datastore.fsoptions();
 	}
 
 	public int access(String path, int access) {
@@ -62,7 +65,6 @@ public abstract class MetaFS extends FuseFilesystem {
 			return 0;
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "commits"))
-			|| path.equals(Helper.buildPath(metaDirName, "commits"))
 			|| path.equals(Helper.buildPath(metaDirName, "fs_parameters"))
 			|| path.equals(Helper.buildPath(metaDirName, "mount_options"))
 			) {
@@ -148,6 +150,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "fs_parameters"))) {
 			stat.setMode(NodeType.FILE, true, false, false, true, false, false, false, false, false);
+			stat.size(fsoptions.toString().length());
 			stat.uid(0);
 			stat.gid(0);
 			return 0;
@@ -231,13 +234,15 @@ public abstract class MetaFS extends FuseFilesystem {
 		return path.equals(Helper.buildPath(metaDirName)) ? 0 : -1;
 	}
 
-	@Override
 	public int read(String path, ByteBuffer buffer, long size, long offset, FileInfoWrapper info) {
 		if (path.equals(Helper.buildPath(metaDirName, "mount_options"))) {
 			return Helper.readString(mntoptions.toMetaFile(), buffer, size, offset);
 		}
 		if (path.equals(Helper.buildPath(metaDirName, "commits"))) {
 			return Helper.readString(Helper.commitList2MetaFile(datastore.getCommitList()), buffer, size, offset);
+		}
+		if (path.equals(Helper.buildPath(metaDirName, "fs_parameters"))) {
+			return Helper.readString(fsoptions.toString(), buffer, size, offset);
 		}
 		return -1;
 	}
@@ -276,14 +281,18 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.ENOSYS();
 	}
 
-	@Override
+	
 	public int rename(String path, String newName) {
-		// TODO Auto-generated method stub
-		return 0;
+		String metaprefix;
+		metaprefix = Helper.buildPath(metaDirName);
+		if (path.startsWith(metaprefix + File.separator) || newName.startsWith(metaprefix + File.separator) || path.equals(metaprefix) || newName.equals(metaprefix)) {
+			return -ErrorCodes.EACCES();
+		}
+		return -ErrorCodes.EEXIST();
 	}
 
 	public int rmdir(String path) {
-		if (!path.startsWith(Helper.buildPath(metaDirName))) {
+		if (!path.startsWith(Helper.buildPath(metaDirName) + File.separator)) {
 			return -ErrorCodes.EEXIST();
 		}
 		if (path.equals(Helper.buildPath(metaDirName))) {
@@ -317,7 +326,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	public int unlink(String path) {
-		if (path.startsWith(Helper.buildPath(metaDirName))) {
+		if (path.startsWith(Helper.buildPath(metaDirName) + File.separator)|| path.equals(Helper.buildPath(metaDirName))) {
 			return ErrorCodes.EACCES();
 		}
 		return ErrorCodes.EEXIST();

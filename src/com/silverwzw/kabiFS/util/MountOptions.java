@@ -23,7 +23,7 @@ public class MountOptions {
 	 * 	mount MAIN branch;<br>
 	 * @author silverwzw
 	 */
-	public enum MountMode {
+	public static enum MountMode {
 		/**
 		 * write will be discard after unmount
 		 */
@@ -213,6 +213,7 @@ public class MountOptions {
 	 * @return corresponding meta file content.
 	 */
 	public String toMetaFile() {
-		return "Mount on: " + new File(mountPoint).getAbsolutePath() + "\n\nOptions:" + originJson + "\n";
+		return "Mount on: " + new File(mountPoint).getAbsolutePath()
+				+ "\n\nOptions:" + originJson + "\n";
 	}
 }

@@ -38,7 +38,9 @@ public abstract class Node {
 	
 	protected final DBObject dbo() {
 		if (dbo == null) {
-			dbo = this.commit().datastore().db().getCollection(type2CollectionName(type)).findOne(new BasicDBObject("_id", nid.oid()));
+			dbo = commit().datastore().db()
+					.getCollection(commit().datastore().fsoptions().collection_name(type))
+					.findOne(new BasicDBObject("_id", nid.oid()));
 		}
 		return dbo;
 	}
@@ -52,17 +54,4 @@ public abstract class Node {
 	}
 
 	protected abstract Commit commit();
-	
-	public final static String type2CollectionName(KabiNodeType type) {
-		switch (type) {
-			case SUB:
-				return "subfile";
-			case FILE:
-				return "file";
-			case DIRECTORY:
-				return "tree";
-		}
-		return null;
-	}
-	
 }

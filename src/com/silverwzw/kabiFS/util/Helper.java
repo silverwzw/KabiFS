@@ -105,6 +105,7 @@ public final class Helper {
 		final String s = contents.substring((int) offset,
 				(int) Math.max(offset, Math.min(contents.length() - offset, offset + size)));
 		buffer.put(s.getBytes());
+		buffer.put(Constant.EOF);
 		return s.getBytes().length;
 	}
 	@SuppressWarnings("serial")

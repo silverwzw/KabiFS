@@ -54,7 +54,8 @@ public final class MongoConn {
 	}
 	
 	private final Set<Server> servers;
-	private String db;
+	private final String db;
+	private final String fsoptions;
 	{
 		servers = new HashSet<Server>();
 	}
@@ -66,8 +67,16 @@ public final class MongoConn {
 		if (mongoConfig == null) {
 			servers.add(new Server(null, null));
 			db = "kabi";
+			fsoptions = "parameters";
 			return;
 		}
+		
+		if (mongoConfig.get("fsoptions") == null) {
+			fsoptions = "parameters";
+		} else {
+			fsoptions = (String) mongoConfig.get("fsoptions").toObject();
+		}
+		
 		if (mongoConfig.get("db") == null) {
 			db = "kabi";
 		} else {
@@ -121,5 +130,8 @@ public final class MongoConn {
 	 */
 	public final String db() {
 		return db;
+	}
+	public final String fsoptions() {
+		return fsoptions;
 	}
 }

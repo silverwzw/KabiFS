@@ -9,6 +9,9 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
@@ -23,6 +26,7 @@ import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
+import com.silverwzw.kabiFS.util.FSOptions;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
 import com.silverwzw.kabiFS.util.Tuple2;
@@ -37,11 +41,14 @@ public class KabiDBAdapter {
 		logger = Logger.getLogger(KabiDBAdapter.class);
 	}
 	
-	private DB db;		
+	private DB db;
+	private final FSOptions fsoptions;
 	private DBCollection collections[];
+	
 	{
 		collections = null;
 	}
+	
 	
 	public final class KabiPersistentCommit extends Commit {
 		
@@ -121,7 +128,7 @@ public class KabiDBAdapter {
 			return new KabiShadowCommit();
 		}
 		
-		public abstract class KabiWritableCommit extends Commit {
+		public abstract class KabiWritableCommit extends Commit implements ReadWriteLock {
 
 			protected Collection<ObjectId> newObjIds;
 			
@@ -133,6 +140,7 @@ public class KabiDBAdapter {
 			protected KabiWritableCommit() {
 				branch = KabiPersistentCommit.this.branch;
 			}
+			
 			protected KabiWritableCommit(String branchName) {
 				branch = branchName;
 			}
@@ -156,7 +164,7 @@ public class KabiDBAdapter {
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
+					.getCollection(fsoptions.collection_name(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
 				newObjId = (ObjectId) dirDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
@@ -181,7 +189,7 @@ public class KabiDBAdapter {
 					.append("arc", arcs);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE)).insert(fileDBObj);
+					.getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE)).insert(fileDBObj);
 				newObjId = (ObjectId) fileDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
@@ -193,7 +201,7 @@ public class KabiDBAdapter {
 				
 				subDBObj = new BasicDBObject("counter", 0).append("data", bytes);
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB)).insert(subDBObj);
+					.getCollection(fsoptions.collection_name(Node.KabiNodeType.SUB)).insert(subDBObj);
 				newObjId = (ObjectId) subDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
@@ -207,25 +215,60 @@ public class KabiDBAdapter {
 				return newObjIds.contains(oid);
 			}
 			
-			public void patch(ObjectId origin, ObjectId replace) {
+			public ObjectId patch(ObjectId origin, ObjectId replace) {
 				if (isNew(origin)) { // direct replace.
 					Tuple3<Node.KabiNodeType, DBCollection, DBObject> nodeinfo;
 					nodeinfo = KabiDBAdapter.this.getNodeDBO(replace);
 					nodeinfo.item3.put("_id", origin);
 					nodeinfo.item2.save(nodeinfo.item3);
 					nodeinfo.item2.remove(new BasicDBObject("_id", replace));
-					return;
+					return origin;
 				}
 				// otherwise
-				applyPatch(origin, replace);
+				return applyPatch(origin, replace);
 			}
-			protected abstract void applyPatch(ObjectId origin, ObjectId replace);
+			
+			public void try2remove(ObjectId objid) {
+				if (newObjIds.remove(objid)) {
+					Tuple3<KabiNodeType, DBCollection, DBObject> tp3;
+					tp3 = getNodeDBO(objid);
+					if (tp3 != null) {
+						tp3.item2.remove(new BasicDBObject("_id", objid));
+					}
+				}
+			}
+			
+			public abstract boolean localonly();
+			
+			protected abstract ObjectId applyPatch(ObjectId origin, ObjectId replace);
+		}
+		
+		public abstract class KabiLocalOnlyWritableCommit extends KabiWritableCommit {
+			private final ReadWriteLock lock;
+			{
+				lock = new ReentrantReadWriteLock();
+			}
+			protected KabiLocalOnlyWritableCommit() {
+				super();
+			}
+			protected KabiLocalOnlyWritableCommit(String branchName) {
+				super(branchName);
+			}
+			public final Lock readLock() {
+				return lock.readLock();
+			}
+			public final Lock writeLock() {
+				return lock.writeLock();
+			}
+			public final boolean localonly() {
+				return true;
+			}
 		}
 		/**
 		 * a writable commit based on current.
 		 * @author silverwzw
 		 */
-		public final class KabiDiffWrittingCommit extends KabiWritableCommit {
+		public final class KabiDiffWrittingCommit extends KabiLocalOnlyWritableCommit {
 			
 			private DBObject dbo;
 			
@@ -254,7 +297,7 @@ public class KabiDBAdapter {
 				}
 			}
 
-			protected final void applyPatch(ObjectId origin, ObjectId replace) {
+			protected final ObjectId applyPatch(ObjectId origin, ObjectId replace) {
 				diffPatches.put(origin, replace);
 				if (dbo == null) {
 					List<DBObject> patches;
@@ -273,15 +316,17 @@ public class KabiDBAdapter {
 					update = new BasicDBObject("$push", listItem);
 					KabiPersistentCommit.this.datastore().db().getCollection("commit").update(query, update);
 				}
+				return replace;
 			}
 			
 		}
 		/**
-		 * make base to current writting.
+		 * make base to current writting commit.
 		 * @author silverwzw
 		 */
-		public class KabiRebaseCommit extends KabiWritableCommit {
+		public class KabiRebaseCommit extends KabiLocalOnlyWritableCommit {
 			private DBObject dbo;
+			
 			{
 				dbo = null;
 			}
@@ -294,7 +339,7 @@ public class KabiDBAdapter {
 				super(branchName);
 			}
 			
-			protected void applyPatch(ObjectId originId, ObjectId replaceId) {
+			protected ObjectId applyPatch(ObjectId originId, ObjectId replaceId) {
 				DBCollection commitCollection;
 				DBObject persistentCommitDBObj;
 				
@@ -333,12 +378,17 @@ public class KabiDBAdapter {
 				originTuple.item2.save(originTuple.item3);
 				replaceTuple.item2.save(replaceTuple.item3);
 				
+				if (newObjIds.remove(replaceId)) {
+					newObjIds.add(originId);
+				}
+				
 				commitCollection.update(
 						new BasicDBObject("_id", KabiPersistentCommit.this.id), // query
 						new BasicDBObject("$push", // push command
 								new BasicDBObject("patch",new BasicDBObject("origin", originId).append("replace", replaceId))
 								)
 						);
+				return originId;
 			}
 
 			protected final ObjectId getActualOid(ObjectId oid) {
@@ -349,7 +399,7 @@ public class KabiDBAdapter {
 		 * a commit that store its patches info in mem, roll back db when unmount
 		 * @author silverwzw
 		 */
-		public final class KabiShadowCommit extends KabiWritableCommit {
+		public final class KabiShadowCommit extends KabiLocalOnlyWritableCommit {
 			
 			private final Map<ObjectId, ObjectId> diffPatches;
 			
@@ -367,17 +417,18 @@ public class KabiDBAdapter {
 				}
 			}
 
-			protected final void applyPatch(final ObjectId origin, final ObjectId replace) {
+			protected final ObjectId applyPatch(final ObjectId origin, final ObjectId replace) {
 				diffPatches.put(origin, replace);
+				return replace;
 			}
 			
 			public final void earse() {
 				DB db;
 				DBCollection tree, file, sub;
 				db = KabiPersistentCommit.this.datastore().db();
-				tree = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY));
-				file = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE));
-				sub = db.getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB));
+				tree = db.getCollection(fsoptions.collection_name(Node.KabiNodeType.DIRECTORY));
+				file = db.getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE));
+				sub = db.getCollection(fsoptions.collection_name(Node.KabiNodeType.SUB));
 				for (ObjectId oid : newObjIds) {
 					DBObject query;
 					query = new BasicDBObject("_id", oid);
@@ -404,6 +455,7 @@ public class KabiDBAdapter {
 			}
 		}
 		db = new Mongo(servers).getDB(connCFG.db());
+		fsoptions = new FSOptions(db.getCollection(connCFG.fsoptions()));
 	}
 
 	public final Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList() {
@@ -573,12 +625,16 @@ public class KabiDBAdapter {
 		return db;
 	}
 	
+	public final FSOptions fsoptions() {
+		return fsoptions;
+	}
+	
 	private final DBCollection[] collections() {
 		if (collections == null) {
 			collections = new DBCollection[] { // do not modify the order, getNodeDBO() depends on that
-				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.DIRECTORY)),
-				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.FILE)),
-				db().getCollection(Node.type2CollectionName(Node.KabiNodeType.SUB))
+				db().getCollection(fsoptions.collection_name(Node.KabiNodeType.DIRECTORY)),
+				db().getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE)),
+				db().getCollection(fsoptions.collection_name(Node.KabiNodeType.SUB))
 			};
 		}
 		return collections;

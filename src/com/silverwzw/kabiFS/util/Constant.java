@@ -7,4 +7,5 @@ public class Constant {
 	final public static int R_OK = 4;
 	final public static int S_IFREG = 0100000;
 	final public static int S_IFDIR = 0040000;
+	final public static byte EOF = -1;
 }
