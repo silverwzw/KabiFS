@@ -545,11 +545,13 @@ public class KabiFS extends MetaFS {
 	}
 	
 	public final int unlink(String path) {
+		System.out.println("0");
 		int superUnlink;
 		superUnlink = super.unlink(path);
 		if (superUnlink != ErrorCodes.EEXIST()) {
 			return superUnlink;
 		}
+		System.out.println("1");
 		commit.writeLock().lock();
 		try {
 			NodeId fileNid, parentNid;
@@ -571,13 +573,15 @@ public class KabiFS extends MetaFS {
 			
 			fnodeinfo = getNode(fileNid, Constant.F_OK);
 			pnodeinfo = getNode(parentNid, Constant.W_OK);
-			
+			System.out.println("2");
 			if (fnodeinfo.node().type() == KabiNodeType.DIRECTORY) {
-				return ErrorCodes.EISDIR();
+				return -ErrorCodes.EISDIR();
 			}
+			System.out.println("3");
 			if (!pnodeinfo.permission()) {
-				return ErrorCodes.EACCES();
+				return -ErrorCodes.EACCES();
 			}
+			System.out.println("3");
 			
 			dnode = (KabiDirectoryNode) pnodeinfo.node();
 			
