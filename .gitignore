@@ -4,4 +4,5 @@
 /lib/mongo-java-driver-2.9.3-javadoc.jar
 /fuse-jna/net/fusejna/examples
 /log
+/mongo_backup
 *.class
