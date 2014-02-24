@@ -13,8 +13,10 @@ import org.bson.types.ObjectId;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
+import com.mongodb.MongoException;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiShadowCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit;
+import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit.PatchResult;
 import com.silverwzw.kabiFS.structure.Commit.KabiDirectoryNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiFileNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
@@ -127,7 +129,9 @@ public class KabiFS extends MetaFS {
 		}
 	}
 	
-	private NodeAndParent findNodeByPath(String path){
+	private static class PathResolException extends Exception {}
+	
+	private NodeAndParent findNodeByPath(String path) throws PathResolException {
 
 		NodeAndParent np;
 		
@@ -153,8 +157,11 @@ public class KabiFS extends MetaFS {
 		}
 		
 		String[] comps;
-		comps = path.split(File.separator);
+		int uid, gid;
 		
+		comps = path.split(File.separator);
+		uid = getFuseContext().uid.intValue();
+		gid = getFuseContext().gid.intValue();
 		
 		for (int i = 1; i < comps.length; i++) {
 			DBObject dbo;
@@ -164,6 +171,21 @@ public class KabiFS extends MetaFS {
 			}
 			KabiDirectoryNode dnode;
 			dnode = commit.new KabiDirectoryNode(dbo);
+			
+			if (
+					!(
+						uid == 0
+						||
+						(dnode.mode() & 0001) != 0
+						||
+						(uid == dnode.uid() && (dnode.mode() & 0100) != 0)
+						||
+						(gid == dnode.gid() && (dnode.mode() & 0010) != 0)
+					)
+				) {
+				throw new PathResolException();
+			}
+			
 			np.item2 = np.item1;
 			np.item1 = null;
 			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
@@ -205,6 +227,10 @@ public class KabiFS extends MetaFS {
 			}
 			Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).node());
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
 		}
@@ -226,9 +252,18 @@ public class KabiFS extends MetaFS {
 			
 			nid = findNodeByPath(path).nodeId();
 			nodeinfo = getNode(nid, Constant.R_OK);
-			if (nid == null || nodeinfo.node().type() != KabiNodeType.FILE) {
+			if (nid == null) {
 				return -ErrorCodes.ENOENT();
 			}
+
+			if (nodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				return ErrorCodes.EISDIR();
+			}
+
+			if (nodeinfo.node().type() != KabiNodeType.FILE) {
+				return ErrorCodes.ENOENT();
+			}
+			
 			if (!nodeinfo.permission()) {
 				return -ErrorCodes.EACCES();
 			}
@@ -250,6 +285,10 @@ public class KabiFS extends MetaFS {
 				}
 			}
 			return byte_count;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
 		}
@@ -275,6 +314,10 @@ public class KabiFS extends MetaFS {
 			nodeinfo = getNode(nid, Constant.R_OK);
 			
 			return nodeinfo.permission() ? 0 : -ErrorCodes.EACCES();
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
 		}
@@ -310,6 +353,10 @@ public class KabiFS extends MetaFS {
 				filler.add(sub.item2);
 			}
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
 		}
@@ -376,9 +423,16 @@ public class KabiFS extends MetaFS {
 				return -1;
 			}
 			
-			commit.patch(nid.oid(), newObjId);
+			PatchResult pr;
+			
+			pr = commit.patch(nid.oid(), newObjId);
 			path2nodeCache.dirty(path);
+			commit.try2remove(pr.oldId());
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
 		}
@@ -439,9 +493,15 @@ public class KabiFS extends MetaFS {
 				return -1;
 			}
 			
-			commit.patch(nid.oid(), newObjId);
+			PatchResult pr;
+			pr = commit.patch(nid.oid(), newObjId);
+			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
 		}
@@ -471,6 +531,10 @@ public class KabiFS extends MetaFS {
 			
 			return getNode(nid, access).permission() ? 0 : -1 ;
 			
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
 		}
@@ -535,23 +599,27 @@ public class KabiFS extends MetaFS {
 					parent.mode(),
 					subs);
 			
-			commit.patch(parentNid.oid(), newParent);
+			PatchResult pr;
+			pr = commit.patch(parentNid.oid(), newParent);
+			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(parentPath);
 			return 0;
 			
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().lock();
 		}
 	}
 	
 	public final int unlink(String path) {
-		System.out.println("0");
 		int superUnlink;
 		superUnlink = super.unlink(path);
-		if (superUnlink != ErrorCodes.EEXIST()) {
+		if (superUnlink != -ErrorCodes.ENOENT()) {
 			return superUnlink;
 		}
-		System.out.println("1");
 		commit.writeLock().lock();
 		try {
 			NodeId fileNid, parentNid;
@@ -573,15 +641,12 @@ public class KabiFS extends MetaFS {
 			
 			fnodeinfo = getNode(fileNid, Constant.F_OK);
 			pnodeinfo = getNode(parentNid, Constant.W_OK);
-			System.out.println("2");
 			if (fnodeinfo.node().type() == KabiNodeType.DIRECTORY) {
 				return -ErrorCodes.EISDIR();
 			}
-			System.out.println("3");
 			if (!pnodeinfo.permission()) {
 				return -ErrorCodes.EACCES();
 			}
-			System.out.println("3");
 			
 			dnode = (KabiDirectoryNode) pnodeinfo.node();
 			
@@ -593,13 +658,20 @@ public class KabiFS extends MetaFS {
 				}
 			}
 			
+			PatchResult pr;
+			
 			newpoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
-			commit.patch(parentNid.oid(), newpoid);
+			pr = commit.patch(parentNid.oid(), newpoid);
 			
 			path2nodeCache.dirty(ppath);
 			commit.try2remove(fileNid.oid());
+			commit.try2remove(pr.oldId());
 			
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
 		}
@@ -653,12 +725,20 @@ public class KabiFS extends MetaFS {
 					subs.add(tp);
 				}
 			}
+			
+			PatchResult pr;
+			
 			newoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), subs);
-			commit.patch(pdir.node().id().oid(), newoid);
+			pr = commit.patch(pdir.node().id().oid(), newoid);
 			path2nodeCache.dirty(path);
 			path2nodeCache.dirty(Helper.parentPath(path));
 			commit.try2remove(nids.nodeId().oid());
+			commit.try2remove(pr.oldId());
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
 		}
@@ -668,7 +748,7 @@ public class KabiFS extends MetaFS {
 
 		int superRename;
 		superRename = super.rename(path, newName);
-		if (superRename != -ErrorCodes.EEXIST()) {
+		if (superRename != -ErrorCodes.ENOENT()) {
 			return superRename;
 		}
 		
@@ -701,7 +781,8 @@ public class KabiFS extends MetaFS {
 			
 			nids = findNodeByPath(newName);
 			
-			t = getNode(nids.nodeId(), Constant.F_OK); 
+			t = getNode(nids.nodeId(), Constant.F_OK);
+			
 			pt = getNode(nids.parentId() == null ? findNodeByPath(Helper.parentPath(newName)).nodeId() : nids.parentId(), Constant.W_OK + Constant.X_OK);
 			
 			
@@ -743,19 +824,25 @@ public class KabiFS extends MetaFS {
 				ObjectId newps;
 				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), subnodes);
 				
+				PatchResult pr1, pr2;
+				
 				path2nodeCache.dirty(path);
 				path2nodeCache.dirty(newName);
-				commit.patch(psn.id().oid(), newps);
-				commit.patch(t.node().id().oid(), s.node().id().oid());
-				commit.try2remove(t.node().id().oid());
-				commit.try2remove(psn.id().oid());
-			} else {
+				pr1 = commit.patch(psn.id().oid(), newps);
+				pr2 = commit.patch(t.node().id().oid(), s.node().id().oid());
+				commit.try2remove(pr1.oldId());
+				commit.try2remove(pr2.oldId());
+			} else if (!Helper.parentPath(path).equals(Helper.parentPath(newName))){ // target not exist && not same folder
 				Collection<Tuple2<ObjectId, String>> subnodes_ps, subnodes_pt;
 				subnodes_ps = new LinkedList<Tuple2<ObjectId, String>>();
 				subnodes_pt = new LinkedList<Tuple2<ObjectId, String>>();
 				
+				String name;
+				
+				name = Helper.nameOf(path);
+				
 				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
-					if (!en.item2.equals(Helper.nameOf(path))) {
+					if (!en.item2.equals(name)) {
 						subnodes_ps.add(en);
 					}
 				}
@@ -765,17 +852,60 @@ public class KabiFS extends MetaFS {
 	
 				path2nodeCache.dirty(path);
 				ObjectId newps, newpt;
+				PatchResult pr1, pr2;
 				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), subnodes_ps);
 				newpt = commit.addDirNode2db(ptn.uid(), ptn.gid(), ptn.mode(), subnodes_pt);
-				commit.patch(ps.node().id().oid(), newps);
-				commit.patch(pt.node().id().oid(), newpt);
-				commit.try2remove(ps.node().id().oid());
-				commit.try2remove(pt.node().id().oid());
+				pr1 = commit.patch(psn.id().oid(), newps);
+				pr2 = commit.patch(ptn.id().oid(), newpt);
+				commit.try2remove(pr1.oldId());
+				commit.try2remove(pr2.oldId());
+			} else {
+				Collection<Tuple2<ObjectId, String>> subnodes;
+				String name;
+				ObjectId noid;
+				PatchResult pr;
 				
+				name = Helper.nameOf(path);
+				subnodes = new LinkedList<Tuple2<ObjectId, String>>();
+				
+				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
+					if (!en.item2.equals(name)) {
+						subnodes.add(en);
+					} else {
+						subnodes.add(new Tuple2<ObjectId, String>(en.item1, Helper.nameOf(newName)));
+					}
+				}
+				
+				noid = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), subnodes);
+				pr = commit.patch(psn.id().oid(), noid);
+				commit.try2remove(pr.oldId());
 			}
 			return 0;
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
 		} finally {
-			commit.writeLock().unlock();;
+			commit.writeLock().unlock();
+		}
+	}
+
+	public int truncate(String path, long offset) {
+		int superTruncate;
+		superTruncate = super.truncate(path, offset);
+		if (superTruncate != -ErrorCodes.ENOENT()) {
+			return superTruncate;
+		}
+		
+		commit.writeLock().lock();
+		try {
+			NodeId fnodeId;
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} finally {
+			commit.writeLock().unlock();
 		}
 	}
 }

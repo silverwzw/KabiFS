@@ -102,7 +102,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	
 	public final void beforeUnmount(File mountPoint) {}
 
-	public int fgetattr(String path, StatWrapper stat, FileInfoWrapper info) {
+	public final int fgetattr(String path, StatWrapper stat, FileInfoWrapper info) {
 		return getattr(path, stat);
 	}
 
@@ -124,9 +124,8 @@ public abstract class MetaFS extends FuseFilesystem {
 		return 0;
 	}
 
-	@Override
-	public int ftruncate(String path, long offset, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
+	public final int ftruncate(String path, long offset, FileInfoWrapper info) {
+		//TODO: multi-read-write
 		return truncate(path, offset);
 	}
 
@@ -191,10 +190,8 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	public final void init() {}
 
-	@Override
-	public int link(String path, String target) {
-		// TODO Auto-generated method stub
-		return 0;
+	public final int link(String path, String target) {
+		return -ErrorCodes.EMLINK();
 	}
 
 	@Override
@@ -260,7 +257,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	public final int readlink(String path, ByteBuffer buffer, long size) {
-		return 0;
+		return -ErrorCodes.EINVAL();
 	}
 
 	@Override
@@ -283,12 +280,7 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	
 	public int rename(String path, String newName) {
-		String metaprefix;
-		metaprefix = Helper.buildPath(metaDirName);
-		if (path.startsWith(metaprefix + File.separator) || newName.startsWith(metaprefix + File.separator) || path.equals(metaprefix) || newName.equals(metaprefix)) {
-			return -ErrorCodes.EACCES();
-		}
-		return -ErrorCodes.EEXIST();
+		return metaNoAccess(path);
 	}
 
 	public int rmdir(String path) {
@@ -316,20 +308,15 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	public final int symlink(String path, String target) {
-		return 0;
+		return -ErrorCodes.EIO();
 	}
 
-	@Override
 	public int truncate(String path, long offset) {
-		// TODO Auto-generated method stub
-		return 0;
+		return metaNoAccess(path);
 	}
 
 	public int unlink(String path) {
-		if (path.startsWith(Helper.buildPath(metaDirName) + File.separator)|| path.equals(Helper.buildPath(metaDirName))) {
-			return ErrorCodes.EACCES();
-		}
-		return ErrorCodes.EEXIST();
+		return metaNoAccess(path);
 	}
 
 	@Override
@@ -347,5 +334,11 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	public final void setLog(Logger logger) {
 		super.log(logger);
+	}
+	
+	private final int metaNoAccess(String path) {
+		String meta;
+		meta = Helper.buildPath(metaDirName);
+		return (path.equals(meta) || path.startsWith(meta + File.separator)) ? -ErrorCodes.EACCES() : -ErrorCodes.ENOENT(); 
 	}
 }

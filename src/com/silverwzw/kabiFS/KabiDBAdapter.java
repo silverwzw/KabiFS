@@ -215,20 +215,40 @@ public class KabiDBAdapter {
 				return newObjIds.contains(oid);
 			}
 			
-			public ObjectId patch(ObjectId origin, ObjectId replace) {
+			public final class PatchResult extends Tuple3<Boolean, ObjectId, ObjectId>{
+				PatchResult(boolean b, ObjectId o, ObjectId r){
+					item1 = b;
+					item2 = o;
+					item3 = r;
+				}
+				public final boolean patched() {
+					return item1;
+				}
+				public final ObjectId oldId() {
+					return item2;
+				}
+				public final ObjectId newId() {
+					return item3;
+				}
+			} 
+			
+			public PatchResult patch(ObjectId origin, ObjectId replace) {
 				if (isNew(origin)) { // direct replace.
 					Tuple3<Node.KabiNodeType, DBCollection, DBObject> nodeinfo;
 					nodeinfo = KabiDBAdapter.this.getNodeDBO(replace);
 					nodeinfo.item3.put("_id", origin);
 					nodeinfo.item2.save(nodeinfo.item3);
 					nodeinfo.item2.remove(new BasicDBObject("_id", replace));
-					return origin;
+					return new PatchResult(false, null, origin);
 				}
 				// otherwise
 				return applyPatch(origin, replace);
 			}
 			
 			public void try2remove(ObjectId objid) {
+				if (objid == null) {
+					return;
+				}
 				if (newObjIds.remove(objid)) {
 					Tuple3<KabiNodeType, DBCollection, DBObject> tp3;
 					tp3 = getNodeDBO(objid);
@@ -240,7 +260,7 @@ public class KabiDBAdapter {
 			
 			public abstract boolean localonly();
 			
-			protected abstract ObjectId applyPatch(ObjectId origin, ObjectId replace);
+			protected abstract PatchResult applyPatch(ObjectId origin, ObjectId replace);
 		}
 		
 		public abstract class KabiLocalOnlyWritableCommit extends KabiWritableCommit {
@@ -297,7 +317,7 @@ public class KabiDBAdapter {
 				}
 			}
 
-			protected final ObjectId applyPatch(ObjectId origin, ObjectId replace) {
+			protected final PatchResult applyPatch(ObjectId origin, ObjectId replace) {
 				diffPatches.put(origin, replace);
 				if (dbo == null) {
 					List<DBObject> patches;
@@ -316,7 +336,7 @@ public class KabiDBAdapter {
 					update = new BasicDBObject("$push", listItem);
 					KabiPersistentCommit.this.datastore().db().getCollection("commit").update(query, update);
 				}
-				return replace;
+				return new PatchResult(true, origin, replace);
 			}
 			
 		}
@@ -339,7 +359,7 @@ public class KabiDBAdapter {
 				super(branchName);
 			}
 			
-			protected ObjectId applyPatch(ObjectId originId, ObjectId replaceId) {
+			protected PatchResult applyPatch(ObjectId originId, ObjectId replaceId) {
 				DBCollection commitCollection;
 				DBObject persistentCommitDBObj;
 				
@@ -388,7 +408,7 @@ public class KabiDBAdapter {
 								new BasicDBObject("patch",new BasicDBObject("origin", originId).append("replace", replaceId))
 								)
 						);
-				return originId;
+				return new PatchResult(true, null, originId);
 			}
 
 			protected final ObjectId getActualOid(ObjectId oid) {
@@ -417,9 +437,9 @@ public class KabiDBAdapter {
 				}
 			}
 
-			protected final ObjectId applyPatch(final ObjectId origin, final ObjectId replace) {
+			protected final PatchResult applyPatch(final ObjectId origin, final ObjectId replace) {
 				diffPatches.put(origin, replace);
-				return replace;
+				return new PatchResult(true, origin, replace);
 			}
 			
 			public final void earse() {
