@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.regex.Pattern;
 
 import net.fusejna.StructStat.StatWrapper;
+import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
 import org.apache.log4j.Logger;
@@ -168,13 +169,30 @@ public final class Helper {
 		stat.gid(node.gid());
 		stat.uid(node.uid());
 		
-		long timestamp;
+		long timestamp, current;
+		
 		timestamp = node.modify().getTime();
-		stat.setAllTimesMillis(System.currentTimeMillis());
-		stat.ctime(System.currentTimeMillis() / 1000);
-		stat.atime(System.currentTimeMillis() / 1000);
+		current = System.currentTimeMillis() * 1000000 - 575136000;
+		
+		stat.ctime(timestamp / 1000, (timestamp % 1000) * 1000000);
+		stat.mtime(timestamp / 1000, (timestamp % 1000) * 1000000);
+		stat.atime(current / 1000000000, current % 1000000000);
+		
 		if (node.type() == KabiNodeType.FILE) {
 			stat.size(((KabiFileNode) node).size());
 		}
+	}
+	
+	public final static boolean timeValid(TimeBufferWrapper timewrapper) {
+		return (timewrapper.ac_sec() > 0) && (timewrapper.mod_sec() > 0)
+				&& (timewrapper.ac_nsec() == Constant.UTIME_NOW
+						|| timewrapper.ac_nsec() == Constant.UTIME_OMIT
+						|| (timewrapper.ac_nsec() > 0 && timewrapper.ac_nsec() < 999999999)
+						)
+				&& (timewrapper.mod_nsec() == Constant.UTIME_NOW
+						|| timewrapper.mod_nsec() == Constant.UTIME_OMIT
+						|| (timewrapper.mod_nsec() > 0 && timewrapper.mod_nsec() < 999999999)
+						)
+				;
 	}
 }

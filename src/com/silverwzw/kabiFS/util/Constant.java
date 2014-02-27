@@ -8,4 +8,6 @@ public class Constant {
 	final public static int S_IFREG = 0100000;
 	final public static int S_IFDIR = 0040000;
 	final public static byte EOF = -1;
+	final public static long UTIME_NOW = 1073741823;
+	final public static long UTIME_OMIT = 1073741822;
 }

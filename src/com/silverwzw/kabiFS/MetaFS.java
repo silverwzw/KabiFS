@@ -317,10 +317,8 @@ public abstract class MetaFS extends FuseFilesystem {
 		return metaNoAccess(path);
 	}
 
-	@Override
 	public int utimens(String path, TimeBufferWrapper wrapper) {
-		// TODO Auto-generated method stub
-		return -ErrorCodes.ENOSYS();
+		return metaNoAccess(path);
 	}
 
 	@Override

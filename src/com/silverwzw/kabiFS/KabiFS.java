@@ -37,6 +37,7 @@ import net.fusejna.ErrorCodes;
 import net.fusejna.StructFuseContext;
 import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
 import net.fusejna.StructStat.StatWrapper;
+import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
@@ -434,7 +435,7 @@ public class KabiFS extends MetaFS {
 						dirNode.uid(), 
 						dirNode.gid(),
 						(int) mode.mode(),
-						new Date(),
+						dirNode.modify(),
 						dirNode.subNodes()
 						);
 			} else if (nodeinfo.node().type() == KabiNodeType.FILE) {
@@ -450,7 +451,7 @@ public class KabiFS extends MetaFS {
 						fileNode.uid(), 
 						fileNode.gid(),
 						(int) mode.mode(),
-						new Date(),
+						fileNode.modify(),
 						fileNode.subNodes(),
 						fileNode.size());
 			} else {
@@ -506,7 +507,7 @@ public class KabiFS extends MetaFS {
 						uid, 
 						gid,
 						dirNode.mode(),
-						new Date(),
+						dirNode.modify(),
 						dirNode.subNodes()
 						);
 			} else if (nodeinfo.node().type() == KabiNodeType.FILE) {
@@ -522,7 +523,7 @@ public class KabiFS extends MetaFS {
 						uid, 
 						gid,
 						fileNode.mode(),
-						new Date(),
+						fileNode.modify(),
 						fileNode.subNodes(),
 						fileNode.size()
 						);
@@ -949,6 +950,9 @@ public class KabiFS extends MetaFS {
 			
 			an = getNode(path, Constant.W_OK);
 			
+			if (an.node() == null) {
+				return -ErrorCodes.ENOENT();
+			}
 			if (an.node().type() == KabiNodeType.DIRECTORY) {
 				return -ErrorCodes.EISDIR();
 			}
@@ -971,10 +975,70 @@ public class KabiFS extends MetaFS {
 				}
 			}
 			ObjectId oid;
+			PatchResult pr;
 			
 			oid = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), fnode.subNodes(), offset);
-			oid = commit.patch(fnode.id().oid(), oid).oldId();
-			commit.try2remove(oid);
+			pr = commit.patch(fnode.id().oid(), oid);
+			commit.try2remove(pr.oldId());
+			path2nodeCache.dirty(path);
+			return 0;
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} finally {
+			commit.writeLock().unlock();
+		}
+	}
+	public final int utimens(String path, TimeBufferWrapper wrapper) {
+		int superUtimens;
+		superUtimens = super.utimens(path, null);
+		if (superUtimens != -ErrorCodes.ENOENT()) {
+			return superUtimens;
+		}
+		
+		AccessNode an;
+		ObjectId oid;
+		
+		commit.writeLock().lock();
+		
+		try {
+			an = getNode(path, Constant.W_OK);
+			
+			if (an.node() == null) {
+				return -ErrorCodes.ENOENT();
+			}
+			
+			if (!an.permission() || wrapper == null) {
+				return -ErrorCodes.EACCES();
+			}
+			
+			if (path == null || !Helper.timeValid(wrapper)) {
+				return -ErrorCodes.EINVAL();
+			}
+			
+			if (wrapper.mod_nsec() == Constant.UTIME_OMIT) {
+				return 0;
+			}
+			
+			Date mod;
+			PatchResult pr;
+			
+			mod = wrapper.mod_nsec() == Constant.UTIME_NOW
+					? new Date()
+					: new Date(wrapper.mod_sec() * 1000 + wrapper.mod_nsec() / 1000000);
+			
+			if (an.node().type() == KabiNodeType.FILE) {
+				KabiFileNode fnode;
+				fnode = (KabiFileNode) an.node();
+				oid = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), mod, fnode.subNodes(), fnode.size());
+			} else {
+				KabiDirectoryNode dnode;
+				dnode = (KabiDirectoryNode) an.node();
+				oid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), mod, dnode.subNodes());
+			}
+			pr = commit.patch(an.node().id().oid(), oid);
+			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
 			return 0;
 		} catch (MongoException ex) {

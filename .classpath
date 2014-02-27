@@ -14,6 +14,6 @@
 			<attribute name="javadoc_location" value="jar:platform:/resource/KabiFS/lib/mongo-java-driver-2.9.3-javadoc.jar!/"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/JNA"/>
+	<classpathentry kind="lib" path="lib/jna-3.5.2.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
