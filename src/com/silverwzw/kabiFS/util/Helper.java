@@ -168,6 +168,11 @@ public final class Helper {
 		stat.gid(node.gid());
 		stat.uid(node.uid());
 		
+		long timestamp;
+		timestamp = node.modify().getTime();
+		stat.setAllTimesMillis(System.currentTimeMillis());
+		stat.ctime(System.currentTimeMillis() / 1000);
+		stat.atime(System.currentTimeMillis() / 1000);
 		if (node.type() == KabiNodeType.FILE) {
 			stat.size(((KabiFileNode) node).size());
 		}

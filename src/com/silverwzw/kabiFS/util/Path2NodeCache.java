@@ -43,9 +43,15 @@ public final class Path2NodeCache {
 	}
 	
 	public synchronized void dirty(String path) {
-		if (size < 1) {
-			return;
+		if (size > 0) {
+			map.remove(path);
 		}
-		map.remove(path);
+	}
+	
+	public synchronized void clear() {
+		if (size > 0) {
+			map = new HashMap<String, NodeId>();
+			mtfList = new LinkedList<String>();
+		}
 	}
 }

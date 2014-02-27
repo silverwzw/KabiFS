@@ -1,6 +1,7 @@
 package com.silverwzw.kabiFS.structure;
 
 import java.util.Collection;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -92,10 +93,13 @@ public abstract class Commit {
 	public abstract class KabiNoneDataNode extends KabiNode {
 		protected long uid, gid;
 		protected int mode;
+		protected Date access, create;
 		
 		{
 			uid = gid = -1;
 			mode = -1;
+			access = null;
+			create = null;
 		}
 
 		protected KabiNoneDataNode(NodeId nid) {
@@ -121,6 +125,12 @@ public abstract class Commit {
 				mode = ((Number) super.dbo().get("mode")).intValue();
 			}
 			return mode;
+		}
+		public final Date modify() {
+			if (create == null) {
+				create = (Date) super.dbo().get("modify");
+			}
+			return create;
 		}
 	}
 
@@ -192,7 +202,9 @@ public abstract class Commit {
 		}
 		public long size() {
 			if (size < 0) {
-				size = subNodes().peekLast().item2;
+				Number sizeN;
+				sizeN = (Number) dbo().get("size");
+				size = (sizeN != null) ? sizeN.longValue() : subNodes().peekLast().item2;
 			}
 			return size;
 		}
@@ -224,7 +236,24 @@ public abstract class Commit {
 			}
 			return data;
 		}
-		
+		public final byte[] data(int start, int end) {
+			if (end <= start) {
+				return new byte[0];
+			}
+			
+			byte[] slice, data;
+			slice = new byte[end - start];
+			data = data();
+			
+			for (int i = 0; start + i < end; i++) {
+				slice[i] = data[start + i];
+			}
+			
+			return slice;
+		}
+		public final byte[] data(int end) {
+			return data(0, end);
+		}
 	}
 	
 }

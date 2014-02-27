@@ -145,51 +145,55 @@ public class KabiDBAdapter {
 				branch = branchName;
 			}
 			
-			public final ObjectId addDirNode2db(long owner, long gowner, int mode, Collection<Tuple2<ObjectId,String>> subnodes) {
-				
-				DBObject dirDBObj;
-				List<DBObject> arcs;
-				ObjectId newObjId;
+			private final BasicDBObject newNoneDataDBO(long owner, long gowner, int mode, Date modify, Collection<? extends Tuple2<ObjectId, ?>> subnodes) {
+				final List<DBObject> arcs;
+				final String key;
 				
 				arcs = new ArrayList<DBObject>(subnodes.size());
 				
-				for (Tuple2<ObjectId,String> tuple : subnodes) {
-					arcs.add(new BasicDBObject("obj", tuple.item1).append("name", tuple.item2));
+				if (subnodes.size() > 0 && subnodes.iterator().next().item2 instanceof String) {
+					key = "name";
+				} else {
+					key = "offset";
 				}
 				
-				dirDBObj = new BasicDBObject()
+				for (Tuple2<ObjectId, ?> tuple : subnodes) {
+					arcs.add(new BasicDBObject("obj", tuple.item1).append(key, tuple.item2));
+				}
+				
+				return new BasicDBObject()
 					.append("gowner", gowner)
 					.append("owner", owner)
 					.append("mode", mode % 01000)
-					.append("arc", arcs);
+					.append("arc", arcs)
+					.append("modify", modify);
+			}
+			
+			public final ObjectId addDirNode2db (long owner, long gowner, int mode, Date modify, Collection<Tuple2<ObjectId,String>> subnodes) {
+				
+				ObjectId newObjId;
+				DBObject dirDBObj;
+				
+				dirDBObj = newNoneDataDBO(owner, gowner, mode, modify, subnodes);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(fsoptions.collection_name(Node.KabiNodeType.DIRECTORY)).insert(dirDBObj);
+					.getCollection(fsoptions.collection_name(Node.KabiNodeType.DIRECTORY))
+					.insert(dirDBObj);
 				newObjId = (ObjectId) dirDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;
 				
 			}
-			public final ObjectId addFileNode2db(long owner, long gowner, int mode, List<Tuple2<ObjectId, Long>> subnodes) {
+			public final ObjectId addFileNode2db(long owner, long gowner, int mode, Date modify, List<Tuple2<ObjectId, Long>> subnodes, long size) {
 				
 				DBObject fileDBObj;
-				List<DBObject> arcs;
 				ObjectId newObjId;
 				
-				arcs = new ArrayList<DBObject>(subnodes.size());
-				
-				for (Tuple2<ObjectId, Long> tuple : subnodes) {
-					arcs.add(new BasicDBObject("obj", tuple.item1).append("offset", tuple.item2));
-				}
-				
-				fileDBObj = new BasicDBObject()
-					.append("gowner", gowner)
-					.append("owner", owner)
-					.append("mode", mode % 01000)
-					.append("arc", arcs);
+				fileDBObj = newNoneDataDBO(owner, gowner, mode,  modify, subnodes);
 				
 				KabiPersistentCommit.this.datastore().db()
-					.getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE)).insert(fileDBObj);
+					.getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE))
+					.insert(fileDBObj);
 				newObjId = (ObjectId) fileDBObj.get("_id");
 				newObjIds.add(newObjId);
 				return newObjId;

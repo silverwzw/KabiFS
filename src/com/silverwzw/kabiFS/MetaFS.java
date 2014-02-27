@@ -88,7 +88,6 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	public final void afterUnmount(File mountPoint) {}
 
-	@Override
 	public int bmap(String path, FileInfoWrapper info) {
 		// TODO Auto-generated method stub
 		return 0;
@@ -125,7 +124,6 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	public final int ftruncate(String path, long offset, FileInfoWrapper info) {
-		//TODO: multi-read-write
 		return truncate(path, offset);
 	}
 
