@@ -45,7 +45,7 @@ public abstract class Node {
 		return dbo;
 	}
 	
-	public final NodeId id(){
+	public NodeId id(){
 		return nid;
 	}
 

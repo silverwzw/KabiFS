@@ -48,7 +48,7 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	public int access(String path, int access) {
 		if (!path.startsWith(Helper.buildPath(metaDirName))) {
-			return -ErrorCodes.EEXIST();
+			return -ErrorCodes.ENOENT();
 		}
 		StructFuseContext context;
 		context = getFuseContext();
@@ -81,7 +81,7 @@ public abstract class MetaFS extends FuseFilesystem {
 				return -ErrorCodes.EACCES();
 			}
 		}
-		return -ErrorCodes.EEXIST();
+		return -ErrorCodes.ENOENT();
 	}
 	
 	public final void beforeMount(File mountPoint) {}
@@ -219,9 +219,7 @@ public abstract class MetaFS extends FuseFilesystem {
 		return create(path, mode, null);
 	}
 
-	@Override
 	public int open(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 	
@@ -310,6 +308,9 @@ public abstract class MetaFS extends FuseFilesystem {
 	}
 
 	public int truncate(String path, long offset) {
+		if (path.equals(Helper.buildPath(metaDirName, "kabi_console"))) {
+			return 0;
+		}
 		return metaNoAccess(path);
 	}
 
@@ -321,11 +322,12 @@ public abstract class MetaFS extends FuseFilesystem {
 		return metaNoAccess(path);
 	}
 
-	@Override
 	public int write(String path, ByteBuffer buf, long bufSize,
 			long writeOffset, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
-		return 0;
+		if (path.equals(Helper.buildPath(metaDirName, "kabi_console"))) {
+			return 0;
+		}
+		return metaNoAccess(path);
 	}
 
 	public final void setLog(Logger logger) {

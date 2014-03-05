@@ -2,7 +2,6 @@ package com.silverwzw.kabiFS;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -13,13 +12,15 @@ import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
 import com.mongodb.MongoException;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiShadowCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit.PatchResult;
+import com.silverwzw.kabiFS.KabiDBAdapter.NodeInfo;
+import com.silverwzw.kabiFS.structure.Commit.DataBlock;
 import com.silverwzw.kabiFS.structure.Commit.KabiDirectoryNode;
+import com.silverwzw.kabiFS.structure.Commit.DirectoryItem;
 import com.silverwzw.kabiFS.structure.Commit.KabiFileNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
 import com.silverwzw.kabiFS.structure.Node;
@@ -30,7 +31,6 @@ import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.Path2NodeCache;
 import com.silverwzw.kabiFS.util.Tuple2;
-import com.silverwzw.kabiFS.util.Tuple3;
 
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
@@ -50,17 +50,11 @@ public class KabiFS extends MetaFS {
 		logger = Logger.getLogger(KabiFS.class);
 	}
 	
-	private MessageDigest msgdigest;
 	private final KabiWritableCommit commit;
 	private final Path2NodeCache path2nodeCache;
 	
 	{
 		path2nodeCache = new Path2NodeCache(100);
-		try {
-			msgdigest = MessageDigest.getInstance("SHA-256");
-		} catch (java.security.NoSuchAlgorithmException ex){
-			throw new RuntimeException("SHA-256 is required but not implemented.", ex);
-		}
 	}
 	
 	public KabiFS(MountOptions options) {
@@ -69,6 +63,10 @@ public class KabiFS extends MetaFS {
 	}
 
 	private final static class AccessNode extends Tuple2<Boolean, Node> {
+		AccessNode(boolean permission, Node node) {
+			item1 = permission;
+			item2 = node;
+		}
 		public final boolean permission() {
 			return super.item1 == null ? false : super.item1;
 		}
@@ -78,41 +76,31 @@ public class KabiFS extends MetaFS {
 	}
 	
 	private final AccessNode getNode(NodeId nid, int access) {
-		AccessNode an;
-		KabiNodeType type;
-		
-		
-		an = new AccessNode();
 		
 		if (nid == null) {
-			an.item1 = false;
-			an.item2 = null;
-			return an;
+			return new AccessNode(false, null);
 		}
 		
-		Tuple3<KabiNodeType, DBCollection, DBObject> dboinfo;
+		NodeInfo nodeinfo;
+		KabiNoneDataNode node;
 		
-		dboinfo = commit.datastore().getNodeDBO(nid.oid());
-		an.item1 = false;
-		type = dboinfo.item1;
-		switch (type) {
+		nodeinfo = commit.datastore().getNodeDBO(nid.oid());
+		
+		switch (nodeinfo.type()) {
 			case FILE:
-				an.item2 = commit.new KabiFileNode(dboinfo.item3);
+				node = commit.new KabiFileNode(nodeinfo.dbo());
 				break;
 			case DIRECTORY:
-				an.item2 = commit.new KabiDirectoryNode(dboinfo.item3);
+				node = commit.new KabiDirectoryNode(nodeinfo.dbo());
 				break;
 			case SUB:
-				an.item2 = commit.new KabiSubNode(dboinfo.item3);
-				an.item1 = true;
-				return an;
+				return new AccessNode(true, commit.new KabiSubNode(nodeinfo.dbo()));
+			default:
+				throw new RuntimeException("dead code");
 		}
 
-		KabiNoneDataNode node;
 		StructFuseContext context;
 		context = getFuseContext();
-		
-		node = (KabiNoneDataNode) an.item2;
 		
 		if (
 				((access & node.mode()) == access)
@@ -121,12 +109,10 @@ public class KabiFS extends MetaFS {
 				||
 				(context.uid.longValue() == node.uid() && ((access & (node.mode()>>6)) == access))
 			){
-			an.item1 = true;;
+			return new AccessNode(true, node);
 		} else {
-			an.item1 = false;
+			return new AccessNode(false, node);
 		}
-		
-		return an;
 	}
 	
 	private final AccessNode getNode(String path, int access) throws PathResolException {
@@ -134,11 +120,15 @@ public class KabiFS extends MetaFS {
 	}
 	
 	private final static class NodeAndParent extends Tuple2<NodeId, NodeId> {
+		NodeAndParent(NodeId nid, NodeId parentnid) {
+			item1 = nid;
+			item2 = parentnid;
+		}
 		public final NodeId nodeId() {
-			return super.item1;
+			return item1;
 		}
 		public final NodeId parentId() {
-			return super.item2;
+			return item2;
 		}
 	}
 	
@@ -147,27 +137,25 @@ public class KabiFS extends MetaFS {
 	
 	private NodeAndParent findNodeByPath(String path) throws PathResolException {
 
-		NodeAndParent np;
+		NodeId nodenid, parentnid;
 		
-		np = new NodeAndParent();
-		
-		np.item1 = path2nodeCache.get(path);
+		nodenid = path2nodeCache.get(path);
 		if (!path.equals(Helper.buildPath())) {
-			np.item2 = path2nodeCache.get(Helper.parentPath(path));
+			parentnid = path2nodeCache.get(Helper.parentPath(path));
 		} else {
-			np.item2 = null;
+			parentnid = null;
 		}
 		
-		if (np.item1 != null) {
-			return np;
+		if (nodenid != null) {
+			return new NodeAndParent(nodenid, parentnid);
 		}
 
-		np.item1 = commit.root().id();
-		np.item2 = null;
+		nodenid = commit.root().id();
+		parentnid = null;
 		
 		if (path.equals(Helper.buildPath())) {
-			path2nodeCache.put(path, np.item1);
-			return np;
+			path2nodeCache.put(path, nodenid);
+			return new NodeAndParent(nodenid, parentnid);
 		}
 		
 		String[] comps;
@@ -179,7 +167,7 @@ public class KabiFS extends MetaFS {
 		
 		for (int i = 1; i < comps.length; i++) {
 			DBObject dbo;
-			dbo = datastore.db().getCollection(fsoptions.collection_name(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", np.item1.oid())); 
+			dbo = datastore.db().getCollection(fsoptions.collection_name(KabiNodeType.DIRECTORY)).findOne(new BasicDBObject("_id", nodenid.oid())); 
 			if (dbo == null) {
 				return null;
 			}
@@ -200,21 +188,21 @@ public class KabiFS extends MetaFS {
 				throw new PathResolException();
 			}
 			
-			np.item2 = np.item1;
-			np.item1 = null;
-			for (Tuple2<ObjectId, String> sub : dnode.subNodes()) {
-				if (sub.item2.equals(comps[i])) {
-					np.item1 = commit.getNodeId(sub.item1);
+			parentnid = nodenid;
+			nodenid = null;
+			for (DirectoryItem sub : dnode.subNodes()) {
+				if (sub.name().equals(comps[i])) {
+					nodenid = commit.getNodeId(sub.oid());
 					break;
 				}
 			}
-			if (np.item1 == null) {
-				return np;
+			if (nodenid == null) {
+				return new NodeAndParent(nodenid, parentnid);
 			}
 		}
 		
-		path2nodeCache.put(path, np.item1);
-		return np;
+		path2nodeCache.put(path, nodenid);
+		return new NodeAndParent(nodenid, parentnid);
 	}
 	
 	public final boolean isFull() {
@@ -290,23 +278,24 @@ public class KabiFS extends MetaFS {
 			lastoffset = 0;
 			filenode = (KabiFileNode) nodeinfo.node();
 			
-			for (Tuple2<ObjectId, Long> tuple : filenode.subNodes()) {
-				if (tuple.item2 <= read_offset) {
-					lastoffset = tuple.item2;
+			for (DataBlock block : filenode.subNodes()) {
+				if (block.endoffset() <= read_offset) {
+					lastoffset = block.endoffset();
 					continue;
 				}
 				
 				byte[] data2write;
-				long endbyte, startbyte;
+				long endoffset, startoffset;
 				
-				endbyte = tuple.item2 < read_offset + read_size ? tuple.item2 : read_offset + read_size;
-				startbyte =read_offset > lastoffset ? read_offset : lastoffset;
-				data2write = commit.getSubNode(commit.getNodeId(tuple.item1)).data((int) (endbyte - startbyte));
+				endoffset = block.endoffset() < read_offset + read_size ? block.endoffset() : read_offset + read_size;
+				startoffset = read_offset > lastoffset ? read_offset : lastoffset;
+				data2write = commit.getSubNode(commit.getNodeId(block.oid()))
+						.data((int)(startoffset - lastoffset + block.omit()), (int) (endoffset - lastoffset + block.omit()));
 				buffer.put(data2write);
 				byte_count += data2write.length;
-				lastoffset = tuple.item2;
+				lastoffset = block.endoffset();
 				
-				if (tuple.item2 >= read_offset + read_size) {
+				if (lastoffset >= read_offset + read_size) {
 					break;
 				}
 			}
@@ -382,8 +371,8 @@ public class KabiFS extends MetaFS {
 			if (!nodeinfo.permission()) {
 				return -ErrorCodes.EACCES();
 			}
-			for (Tuple2<ObjectId, String> sub : ((KabiDirectoryNode) nodeinfo.node()).subNodes()) {
-				filler.add(sub.item2);
+			for (DirectoryItem diritem : ((KabiDirectoryNode) nodeinfo.node()).subNodes()) {
+				filler.add(diritem.name());
 			}
 			return 0;
 		} catch (PathResolException ex) {
@@ -477,18 +466,15 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
-			NodeId nid;
 			AccessNode nodeinfo;
+
+			nodeinfo = getNode(path, Constant.W_OK);
 			
-			nid = findNodeByPath(path).nodeId();
-			
-			if (nid == null) {
+			if (nodeinfo.node() == null) {
 				return -ErrorCodes.ENOENT();
 			}
 			
-			nodeinfo = getNode(nid, Constant.W_OK);
-	
-			if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.item1)) {
+			if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.permission())) {
 				return -ErrorCodes.EACCES();
 			}
 	
@@ -532,7 +518,7 @@ public class KabiFS extends MetaFS {
 			}
 			
 			PatchResult pr;
-			pr = commit.patch(nid.oid(), newObjId);
+			pr = commit.patch(nodeinfo.node().id().oid(), newObjId);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
 			return 0;
@@ -551,7 +537,7 @@ public class KabiFS extends MetaFS {
 		try {
 			int superAccess;
 			superAccess = super.access(path, access);
-			if (superAccess != -ErrorCodes.EEXIST()) {
+			if (superAccess != -ErrorCodes.ENOENT()) {
 				return superAccess;
 			}
 			
@@ -617,20 +603,20 @@ public class KabiFS extends MetaFS {
 				return -ErrorCodes.EACCES();
 			}
 	
-			Collection<Tuple2<ObjectId, String>> subs;
+			Collection<DirectoryItem> subs;
 			
 			parent = (KabiDirectoryNode) an.node();
-			subs = new LinkedList<Tuple2<ObjectId, String>>(parent.subNodes());
+			subs = new LinkedList<DirectoryItem>(parent.subNodes());
 			
 			newDir = commit.addDirNode2db(
 					context.uid.longValue(), 
 					context.gid.longValue(), 
 					(int)(mode.mode() % 01000), 
 					new Date(),
-					new ArrayList<Tuple2<ObjectId, String>>(0)
+					new ArrayList<DirectoryItem>(0)
 					);
 			
-			subs.add(new Tuple2<ObjectId, String>(newDir, Helper.nameOf(path)));
+			subs.add(new DirectoryItem(newDir, Helper.nameOf(path)));
 			
 			newParent = commit.addDirNode2db(
 					parent.uid(),
@@ -655,19 +641,22 @@ public class KabiFS extends MetaFS {
 	}
 	
 	public final int unlink(String path) {
-		int superUnlink;
-		superUnlink = super.unlink(path);
-		if (superUnlink != -ErrorCodes.ENOENT()) {
-			return superUnlink;
-		}
+
 		commit.writeLock().lock();
+		
 		try {
+			int superUnlink;
+			superUnlink = super.unlink(path);
+			if (superUnlink != -ErrorCodes.ENOENT()) {
+				return superUnlink;
+			}
+			
 			NodeId fileNid, parentNid;
 			AccessNode fnodeinfo, pnodeinfo;
 			NodeAndParent n2;
 			String ppath;
 			KabiDirectoryNode dnode;
-			Collection<Tuple2<ObjectId, String>> subs;
+			Collection<DirectoryItem> subs;
 			ObjectId newpoid;
 			
 			n2 = findNodeByPath(path);
@@ -690,10 +679,10 @@ public class KabiFS extends MetaFS {
 			
 			dnode = (KabiDirectoryNode) pnodeinfo.node();
 			
-			subs = new LinkedList<Tuple2<ObjectId, String>>();
+			subs = new LinkedList<DirectoryItem>();
 			
-			for (Tuple2<ObjectId, String> en : dnode.subNodes()) {
-				if (!en.item2.equals(Helper.nameOf(path))) {
+			for (DirectoryItem en : dnode.subNodes()) {
+				if (!en.name().equals(Helper.nameOf(path))) {
 					subs.add(en);
 				}
 			}
@@ -718,24 +707,25 @@ public class KabiFS extends MetaFS {
 	}
 	
 	public final int rmdir(String path) {
-		int superRmdir;
-		superRmdir = super.rmdir(path);
-		if (superRmdir != -ErrorCodes.EEXIST()) {
-			return superRmdir;
-		}
-		
-		if (path.equals(Helper.buildPath())) {
-			return -ErrorCodes.EFAULT();
-		}
-		
 		commit.writeLock().lock();
 		
 		try {
 			
+			int superRmdir;
+			superRmdir = super.rmdir(path);
+			if (superRmdir != -ErrorCodes.EEXIST()) {
+				return superRmdir;
+			}
+			
+			if (path.equals(Helper.buildPath())) {
+				return -ErrorCodes.EFAULT();
+			}
+		
+			
 			NodeAndParent nids;
 			AccessNode dir, pdir;
 			KabiDirectoryNode dnode;
-			List<Tuple2<ObjectId, String>> subs;
+			List<DirectoryItem> subs;
 			ObjectId newoid;
 			
 			nids = findNodeByPath(path);
@@ -759,10 +749,10 @@ public class KabiFS extends MetaFS {
 			}
 			
 			dnode = (KabiDirectoryNode) pdir.node();
-			subs = new LinkedList<Tuple2<ObjectId, String>>();
-			for (Tuple2<ObjectId, String> tp : dnode.subNodes()) {
-				if (!tp.item2.equals(Helper.nameOf(path))) {
-					subs.add(tp);
+			subs = new LinkedList<DirectoryItem>();
+			for (DirectoryItem di : dnode.subNodes()) {
+				if (!di.name().equals(Helper.nameOf(path))) {
+					subs.add(di);
 				}
 			}
 			
@@ -786,31 +776,32 @@ public class KabiFS extends MetaFS {
 	
 	public final int rename(String path, String newName) {
 
-		int superRename;
-		superRename = super.rename(path, newName);
-		if (superRename != -ErrorCodes.ENOENT()) {
-			return superRename;
-		}
-		
-		if (path.equals(newName)) {
-			return 0;
-		}
-		
-		if (path.equals(Helper.buildPath()) || newName.equals(Helper.buildPath())) {
-			return -ErrorCodes.EBUSY();
-		}
-		
-		if (newName.startsWith(path) && newName.charAt(path.length()) == File.separatorChar) {
-			return -ErrorCodes.EINVAL();
-		}
-
-		if (isFull()) {
-			return -ErrorCodes.ENOSPC();
-		}
-		
 		commit.writeLock().lock();
 		
 		try {
+			
+			int superRename;
+			superRename = super.rename(path, newName);
+			if (superRename != -ErrorCodes.ENOENT()) {
+				return superRename;
+			}
+			
+			if (path.equals(newName)) {
+				return 0;
+			}
+			
+			if (path.equals(Helper.buildPath()) || newName.equals(Helper.buildPath())) {
+				return -ErrorCodes.EBUSY();
+			}
+			
+			if (newName.startsWith(path) && newName.charAt(path.length()) == File.separatorChar) {
+				return -ErrorCodes.EINVAL();
+			}
+	
+			if (isFull()) {
+				return -ErrorCodes.ENOSPC();
+			}
+		
 			NodeAndParent nids;
 			AccessNode ps, s, pt, t;
 			
@@ -852,11 +843,11 @@ public class KabiFS extends MetaFS {
 			psn = (KabiDirectoryNode) ps.node();
 			
 			if (t.permission()) {// target exist
-				Collection<Tuple2<ObjectId, String>> subnodes;
-				subnodes = new LinkedList<Tuple2<ObjectId, String>>();
+				Collection<DirectoryItem> subnodes;
+				subnodes = new LinkedList<DirectoryItem>();
 				
-				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
-					if (!en.item2.equals(Helper.nameOf(path))) {
+				for (DirectoryItem en : psn.subNodes()) {
+					if (!en.name().equals(Helper.nameOf(path))) {
 						subnodes.add(en);
 					}
 				}
@@ -873,22 +864,22 @@ public class KabiFS extends MetaFS {
 				commit.try2remove(pr1.oldId());
 				commit.try2remove(pr2.oldId());
 			} else if (!Helper.parentPath(path).equals(Helper.parentPath(newName))){ // target not exist && not same folder
-				Collection<Tuple2<ObjectId, String>> subnodes_ps, subnodes_pt;
-				subnodes_ps = new LinkedList<Tuple2<ObjectId, String>>();
-				subnodes_pt = new LinkedList<Tuple2<ObjectId, String>>();
+				Collection<DirectoryItem> subnodes_ps, subnodes_pt;
+				subnodes_ps = new LinkedList<DirectoryItem>();
+				subnodes_pt = new LinkedList<DirectoryItem>();
 				
 				String name;
 				
 				name = Helper.nameOf(path);
 				
-				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
-					if (!en.item2.equals(name)) {
+				for (DirectoryItem en : psn.subNodes()) {
+					if (!en.name().equals(name)) {
 						subnodes_ps.add(en);
 					}
 				}
 				
 				subnodes_pt.addAll(ptn.subNodes());
-				subnodes_pt.add(new Tuple2<ObjectId, String>(s.node().id().oid(), Helper.nameOf(newName)));
+				subnodes_pt.add(new DirectoryItem(s.node().id().oid(), Helper.nameOf(newName)));
 	
 				path2nodeCache.dirty(path);
 				ObjectId newps, newpt;
@@ -900,19 +891,19 @@ public class KabiFS extends MetaFS {
 				commit.try2remove(pr1.oldId());
 				commit.try2remove(pr2.oldId());
 			} else {
-				Collection<Tuple2<ObjectId, String>> subnodes;
+				Collection<DirectoryItem> subnodes;
 				String name;
 				ObjectId noid;
 				PatchResult pr;
 				
 				name = Helper.nameOf(path);
-				subnodes = new LinkedList<Tuple2<ObjectId, String>>();
+				subnodes = new LinkedList<DirectoryItem>();
 				
-				for (Tuple2<ObjectId, String> en : psn.subNodes()) {
-					if (!en.item2.equals(name)) {
+				for (DirectoryItem en : psn.subNodes()) {
+					if (!en.name().equals(name)) {
 						subnodes.add(en);
 					} else {
-						subnodes.add(new Tuple2<ObjectId, String>(en.item1, Helper.nameOf(newName)));
+						subnodes.add(new DirectoryItem(en.oid(), Helper.nameOf(newName)));
 					}
 				}
 				
@@ -931,22 +922,22 @@ public class KabiFS extends MetaFS {
 	}
 
 	public final int truncate(String path, long offset) {
-		int superTruncate;
-		superTruncate = super.truncate(path, offset);
-		if (superTruncate != -ErrorCodes.ENOENT()) {
-			return superTruncate;
-		}
-		
-		if (offset < 0) {
-			return -ErrorCodes.EINVAL();
-		}
-		
 		commit.writeLock().lock();
 		
 		try {
+			int superTruncate;
+			superTruncate = super.truncate(path, offset);
+			if (superTruncate != -ErrorCodes.ENOENT()) {
+				return superTruncate;
+			}
+			
+			if (offset < 0) {
+				return -ErrorCodes.EINVAL();
+			}
+		
 			AccessNode an;
 			KabiFileNode fnode;
-			Collection<Tuple2<ObjectId, Long>> subs;
+			Collection<DataBlock> subs;
 			
 			an = getNode(path, Constant.W_OK);
 			
@@ -961,16 +952,21 @@ public class KabiFS extends MetaFS {
 			}
 			
 			fnode = (KabiFileNode) an.node();
-			subs = new LinkedList<Tuple2<ObjectId, Long>>();
 			
-			for (Tuple2<ObjectId, Long> en : fnode.subNodes()) {
-				if (en.item2 < offset) {
+			if (fnode.size() == offset) {
+				return 0;
+			}
+			
+			subs = new LinkedList<DataBlock>();
+			
+			for (DataBlock en : fnode.subNodes()) {
+				if (en.endoffset() < offset) {
 					subs.add(en);
-				} else if (en.item2 == offset){
+				} else if (en.endoffset() == offset){
 					subs.add(en);
 					break;
 				} else {
-					subs.add(new Tuple2<ObjectId, Long>(en.item1, offset));
+					subs.add(new DataBlock(en.oid(), offset));
 					break;
 				}
 			}
@@ -991,18 +987,19 @@ public class KabiFS extends MetaFS {
 		}
 	}
 	public final int utimens(String path, TimeBufferWrapper wrapper) {
-		int superUtimens;
-		superUtimens = super.utimens(path, null);
-		if (superUtimens != -ErrorCodes.ENOENT()) {
-			return superUtimens;
-		}
-		
-		AccessNode an;
-		ObjectId oid;
-		
 		commit.writeLock().lock();
 		
 		try {
+				
+			int superUtimens;
+			superUtimens = super.utimens(path, null);
+			if (superUtimens != -ErrorCodes.ENOENT()) {
+				return superUtimens;
+			}
+			
+			AccessNode an;
+			ObjectId oid;
+			
 			an = getNode(path, Constant.W_OK);
 			
 			if (an.node() == null) {
@@ -1041,6 +1038,161 @@ public class KabiFS extends MetaFS {
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
 			return 0;
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} finally {
+			commit.writeLock().unlock();
+		}
+	}
+	public final int write(String path, ByteBuffer buf, long writeSize, long writeOffset, FileInfoWrapper info) {
+		commit.writeLock().lock();
+		try {
+			System.out.println("write get called: offset = " + writeOffset + ", size = " + writeSize);
+			for (int i = 0; i < writeSize; i++) {
+				System.out.print("(" + ((char)buf.get(i)) + ")" + buf.get(i) + ",");
+			}
+			System.out.println();
+			int superWrite;
+			superWrite = super.write(path, buf, writeSize, writeOffset, info);
+			if (superWrite != -ErrorCodes.ENOENT()) {
+				return superWrite;
+			}
+			
+			AccessNode an;
+
+			an = getNode(path, Constant.W_OK);
+			
+			if (!an.permission()) {
+				return -ErrorCodes.EACCES();
+			}
+			if (writeSize <= 0) {
+				return 0;
+			}
+			if (isFull()) {
+				return -ErrorCodes.ENOSPC();
+			}
+			
+			if (an.node().type() != KabiNodeType.FILE) {
+				return -ErrorCodes.EINVAL();
+			}
+			
+			KabiFileNode fnode;
+			List<DataBlock> newSubNodes;
+			long lastoffset = 0;
+			
+			fnode = (KabiFileNode) an.node();
+			newSubNodes = new LinkedList<DataBlock>();
+			
+			
+			for ( DataBlock block : fnode.subNodes()) {
+				System.out.println("processing block:" + block.oid());
+				if (block.endoffset() <= writeOffset || lastoffset <= writeOffset + writeSize) {
+					System.out.println("\tdirectly add");
+					newSubNodes.add(block);
+				} else if (writeOffset > lastoffset + fsoptions.min_block_size() && writeOffset + writeSize >= block.endoffset() && block.endoffset() - writeOffset >= fsoptions.min_block_size()) {
+					System.out.println("\ttruncate and add");
+					byte[] bytes2write;
+					ObjectId newSubNodeOid;
+					
+					bytes2write = new byte[(int) (block.endoffset() - writeOffset)];
+					
+					for (int counter = 0; counter < bytes2write.length; counter++) {
+						bytes2write[counter] = buf.get(counter);
+					}
+					
+					newSubNodeOid = commit.addSubNode2db(bytes2write);
+					newSubNodes.add(new DataBlock(block.oid(), writeOffset, block.omit()));
+					newSubNodes.add(new DataBlock(newSubNodeOid, block.endoffset(), 0));
+					
+				} else if (writeOffset <= lastoffset && writeOffset + writeSize >= lastoffset + fsoptions.min_block_size() && writeOffset + writeSize <= block.endoffset() - fsoptions.min_block_size()) {
+					System.out.println("\tadd and truncate");
+					byte[] bytes2write;
+					ObjectId newSubNodeOid;
+					
+					bytes2write = new byte[(int) (writeOffset + writeSize - lastoffset)];
+					
+					for (int counter = 0; counter < bytes2write.length; counter++) {
+						bytes2write[counter] = buf.get((int) (lastoffset - writeOffset + counter));
+					}
+					
+					newSubNodeOid = commit.addSubNode2db(bytes2write);
+					newSubNodes.add(new DataBlock(newSubNodeOid, writeOffset + writeSize, 0));
+					newSubNodes.add(new DataBlock(block.oid(), block.endoffset(), writeOffset + writeSize - lastoffset));
+					
+				} else if (lastoffset <= writeOffset && writeOffset + writeSize < block.endoffset()) {
+					System.out.println("\toverwrite");
+					
+					byte[] bytes2write, old_block_data;
+					int write_pointer;
+					ObjectId newSubNodeOid;
+					
+					write_pointer = 0;
+					bytes2write = new byte[(int) (block.endoffset() - lastoffset)];
+					old_block_data = commit.getSubNode(commit.getNodeId(block.oid()))
+							.data((int)block.omit(), (int)block.endoffset());
+							
+					
+					while (write_pointer < bytes2write.length) {
+						if (write_pointer + lastoffset < writeOffset || write_pointer + lastoffset >= writeOffset + writeSize) {
+							bytes2write[write_pointer] = old_block_data[write_pointer];
+						} else {
+							bytes2write[write_pointer] = buf.get((int) (lastoffset + write_pointer - writeOffset));
+						}
+						write_pointer++;
+					}
+					
+					newSubNodeOid = commit.addSubNode2db(bytes2write);
+					newSubNodes.add(new DataBlock(newSubNodeOid, block.endoffset(), 0));
+				}
+				lastoffset = block.endoffset();
+			}
+			
+			if (lastoffset < writeOffset + writeSize) {
+				long currentOffset;
+				byte[] bBuffer;
+				int buffer_count;
+				
+				currentOffset = lastoffset;
+				bBuffer = null;
+				buffer_count = 0;
+				
+				while (currentOffset < writeOffset + writeSize) {
+					if (bBuffer == null || bBuffer.length == buffer_count) {
+						if (bBuffer != null) {
+							newSubNodes.add(new DataBlock(commit.addSubNode2db(bBuffer), currentOffset, 0));
+						}
+						if (writeOffset + writeSize - currentOffset > fsoptions.max_block_size()) {
+							bBuffer = new byte[(int) fsoptions.max_block_size()];
+						} else {
+							bBuffer = new byte[(int) (writeOffset + writeSize - currentOffset)];
+						}
+						buffer_count = 0;
+					}
+					bBuffer[buffer_count] = buf.get((int) (currentOffset - writeOffset));
+					currentOffset++;
+					buffer_count++;
+				}
+				
+				newSubNodes.add(new DataBlock(commit.addSubNode2db(bBuffer), currentOffset, 0));
+			}
+			
+			ObjectId newFileNode;
+			PatchResult pr;
+			long newSize;
+			
+			if (fnode.size() >= writeOffset + writeSize) {
+				newSize = fnode.size();
+			} else {
+				newSize = writeOffset + writeSize;
+			}
+			
+			newFileNode = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), newSubNodes, newSize);
+			pr = commit.patch(fnode.id().oid(), newFileNode);
+			System.out.println("patching " + fnode.id().oid() + "->" + newFileNode);
+			commit.try2remove(pr.oldId());
+			return (int) writeSize;
 		} catch (MongoException ex) {
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {

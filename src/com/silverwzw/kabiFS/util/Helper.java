@@ -10,9 +10,9 @@ import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
 import org.apache.log4j.Logger;
-import org.bson.types.ObjectId;
 
 import com.mongodb.DBObject;
+import com.silverwzw.kabiFS.KabiDBAdapter.CommitListItem;
 import com.silverwzw.kabiFS.structure.Commit.KabiFileNode;
 import com.silverwzw.kabiFS.structure.Commit.KabiNoneDataNode;
 import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
@@ -140,11 +140,11 @@ public final class Helper {
 	/**
 	 * transform CommitList to meta file String
 	 */
-	public final static String commitList2MetaFile(Collection<Tuple3<ObjectId, String, ObjectId>> list) {
+	public final static String commitList2MetaFile(Collection<CommitListItem> list) {
 		String content;
 		content = "#ObjectId\tName\tbase\n";
-		for (Tuple3<ObjectId, String, ObjectId> entry : list) {
-			content += entry.item1.toString() + '\t' + entry.item2 + '\t' + (entry.item3 == null ? "null" : entry.item3.toString()) + '\n';
+		for (CommitListItem entry : list) {
+			content += entry.oid().toString() + '\t' + entry.name() + '\t' + (entry.base() == null ? "null" : entry.base().toString()) + '\n';
 		}
 		return content;
 	}

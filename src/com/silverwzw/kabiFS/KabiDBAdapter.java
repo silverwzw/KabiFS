@@ -1,6 +1,7 @@
 package com.silverwzw.kabiFS;
 
 import java.net.UnknownHostException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -22,6 +23,7 @@ import com.mongodb.DBCollection;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.Mongo;
+import com.mongodb.MongoException;
 import com.mongodb.ServerAddress;
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.structure.Node;
@@ -29,16 +31,21 @@ import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
 import com.silverwzw.kabiFS.util.FSOptions;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.MongoConn;
-import com.silverwzw.kabiFS.util.Tuple2;
 import com.silverwzw.kabiFS.util.Tuple3;
 import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 
 public class KabiDBAdapter {
 	
 	private static final Logger logger;
+	private static final java.security.MessageDigest sha256;
 	
 	static {
 		logger = Logger.getLogger(KabiDBAdapter.class);
+		try {
+			sha256 = java.security.MessageDigest.getInstance("SHA-256");
+		} catch (NoSuchAlgorithmException e) {
+			throw new RuntimeException("Algorithm SHA-256 not found.");
+		}
 	}
 	
 	private DB db;
@@ -48,7 +55,6 @@ public class KabiDBAdapter {
 	{
 		collections = null;
 	}
-	
 	
 	public final class KabiPersistentCommit extends Commit {
 		
@@ -145,20 +151,22 @@ public class KabiDBAdapter {
 				branch = branchName;
 			}
 			
-			private final BasicDBObject newNoneDataDBO(long owner, long gowner, int mode, Date modify, Collection<? extends Tuple2<ObjectId, ?>> subnodes) {
+			@SuppressWarnings("unchecked")
+			private final BasicDBObject newNoneDataDBO(long owner, long gowner, int mode, Date modify, Collection<?> subnodes) {
 				final List<DBObject> arcs;
-				final String key;
 				
 				arcs = new ArrayList<DBObject>(subnodes.size());
 				
-				if (subnodes.size() > 0 && subnodes.iterator().next().item2 instanceof String) {
-					key = "name";
+				if (subnodes.size() > 0 && subnodes.iterator().next() instanceof DirectoryItem) {
+					for (DirectoryItem item : (Collection<DirectoryItem>) subnodes) {
+						arcs.add(new BasicDBObject("obj", item.oid()).append("name", item.name()));
+					}
 				} else {
-					key = "offset";
-				}
-				
-				for (Tuple2<ObjectId, ?> tuple : subnodes) {
-					arcs.add(new BasicDBObject("obj", tuple.item1).append(key, tuple.item2));
+					for (DataBlock block : (Collection<DataBlock>) subnodes) {
+						BasicDBObject blockdbo;
+						blockdbo = block.omit() == 0 ? new BasicDBObject() : new BasicDBObject("omit", block.omit());
+						arcs.add(blockdbo.append("obj", block.oid()).append("offset", block.endoffset()));
+					}
 				}
 				
 				return new BasicDBObject()
@@ -169,7 +177,7 @@ public class KabiDBAdapter {
 					.append("modify", modify);
 			}
 			
-			public final ObjectId addDirNode2db (long owner, long gowner, int mode, Date modify, Collection<Tuple2<ObjectId,String>> subnodes) {
+			public final ObjectId addDirNode2db (long owner, long gowner, int mode, Date modify, Collection<DirectoryItem> subnodes) {
 				
 				ObjectId newObjId;
 				DBObject dirDBObj;
@@ -184,12 +192,12 @@ public class KabiDBAdapter {
 				return newObjId;
 				
 			}
-			public final ObjectId addFileNode2db(long owner, long gowner, int mode, Date modify, List<Tuple2<ObjectId, Long>> subnodes, long size) {
+			public final ObjectId addFileNode2db(long owner, long gowner, int mode, Date modify, List<DataBlock> subnodes, long size) {
 				
 				DBObject fileDBObj;
 				ObjectId newObjId;
 				
-				fileDBObj = newNoneDataDBO(owner, gowner, mode,  modify, subnodes);
+				fileDBObj = newNoneDataDBO(owner, gowner, mode,  modify, subnodes).append("size", size);
 				
 				KabiPersistentCommit.this.datastore().db()
 					.getCollection(fsoptions.collection_name(Node.KabiNodeType.FILE))
@@ -199,15 +207,33 @@ public class KabiDBAdapter {
 				return newObjId;
 				
 			}
+			
 			public final ObjectId addSubNode2db(byte[] bytes) {
 				DBObject subDBObj;
 				ObjectId newObjId;
+				byte[] digest, id;
 				
-				subDBObj = new BasicDBObject("counter", 0).append("data", bytes);
-				KabiPersistentCommit.this.datastore().db()
-					.getCollection(fsoptions.collection_name(Node.KabiNodeType.SUB)).insert(subDBObj);
-				newObjId = (ObjectId) subDBObj.get("_id");
-				newObjIds.add(newObjId);
+				
+				digest = sha256.digest(bytes);
+				id = new byte[12];
+				for (int i = 0; i < id.length; i++) {
+					id[i] = 0;
+				}
+				
+				for (int i = 0; i < digest.length; i++) {
+					id[i % 12] ^= digest[i];
+				}
+
+				newObjId = new ObjectId(id);
+				subDBObj = new BasicDBObject("_id", newObjId).append("data", bytes);
+				try {
+					KabiPersistentCommit.this.datastore().db()
+						.getCollection(fsoptions.collection_name(Node.KabiNodeType.SUB)).insert(subDBObj);
+					newObjIds.add(newObjId);
+				} catch (MongoException ex) {
+					;
+				}
+				
 				return newObjId;
 			}
 
@@ -238,11 +264,11 @@ public class KabiDBAdapter {
 			
 			public PatchResult patch(ObjectId origin, ObjectId replace) {
 				if (isNew(origin)) { // direct replace.
-					Tuple3<Node.KabiNodeType, DBCollection, DBObject> nodeinfo;
+					NodeInfo nodeinfo;
 					nodeinfo = KabiDBAdapter.this.getNodeDBO(replace);
-					nodeinfo.item3.put("_id", origin);
-					nodeinfo.item2.save(nodeinfo.item3);
-					nodeinfo.item2.remove(new BasicDBObject("_id", replace));
+					nodeinfo.dbo().put("_id", origin);
+					nodeinfo.collection().save(nodeinfo.dbo());
+					nodeinfo.collection().remove(new BasicDBObject("_id", replace));
 					return new PatchResult(false, null, origin);
 				}
 				// otherwise
@@ -254,10 +280,10 @@ public class KabiDBAdapter {
 					return;
 				}
 				if (newObjIds.remove(objid)) {
-					Tuple3<KabiNodeType, DBCollection, DBObject> tp3;
-					tp3 = getNodeDBO(objid);
-					if (tp3 != null) {
-						tp3.item2.remove(new BasicDBObject("_id", objid));
+					NodeInfo nodeinfo;
+					nodeinfo = getNodeDBO(objid);
+					if (nodeinfo != null) {
+						nodeinfo.collection().remove(new BasicDBObject("_id", objid));
 					}
 				}
 			}
@@ -388,19 +414,19 @@ public class KabiDBAdapter {
 				}
 				
 				
-				Tuple3<?, DBCollection, DBObject> originTuple, replaceTuple;
+				NodeInfo originTuple, replaceTuple;
 				
 				originTuple = KabiDBAdapter.this.getNodeDBO(originId);
 				replaceTuple = KabiDBAdapter.this.getNodeDBO(replaceId);
 				
-				originTuple.item3.put("_id", replaceId);
-				replaceTuple.item3.put("_id", originId);
+				originTuple.dbo().put("_id", replaceId);
+				replaceTuple.dbo().put("_id", originId);
 
-				originTuple.item2.remove(new BasicDBObject("_id", originId));
-				replaceTuple.item2.remove(new BasicDBObject("_id", replaceId));
+				originTuple.collection().remove(new BasicDBObject("_id", originId));
+				replaceTuple.collection().remove(new BasicDBObject("_id", replaceId));
 				
-				originTuple.item2.save(originTuple.item3);
-				replaceTuple.item2.save(replaceTuple.item3);
+				originTuple.collection().save(originTuple.dbo());
+				replaceTuple.collection().save(replaceTuple.dbo());
 				
 				if (newObjIds.remove(replaceId)) {
 					newObjIds.add(originId);
@@ -482,14 +508,30 @@ public class KabiDBAdapter {
 		fsoptions = new FSOptions(db.getCollection(connCFG.fsoptions()));
 	}
 
-	public final Collection<Tuple3<ObjectId, String, ObjectId>> getCommitList() {
+	public static final class CommitListItem extends Tuple3<ObjectId, String, ObjectId> {
+		CommitListItem(ObjectId commitId, String commitName, ObjectId baseCommitId) {
+			item1 = commitId;
+			item2 = commitName;
+			item3 = baseCommitId;
+		}
+		public final ObjectId oid() {
+			return item1; 
+		}
+		public final String name() {
+			return item2; 
+		}
+		public final ObjectId base() {
+			return item3; 
+		}
+	}
+	public final Collection<CommitListItem> getCommitList() {
 		if (!db.collectionExists("commit")) {
 			logger.error("connot find commit collection");
 		}
 		
-		Collection<Tuple3<ObjectId, String, ObjectId>> commitList;
+		Collection<CommitListItem> commitList;
 		
-		commitList = new LinkedList<Tuple3<ObjectId, String, ObjectId>>();
+		commitList = new LinkedList<CommitListItem>();
 		
 		DBCursor commitCur = db.getCollection("commit").find();
 		
@@ -498,32 +540,29 @@ public class KabiDBAdapter {
 			dbo = commitCur.next();
 			String branchName;
 			Date timestamp;
-			Tuple3<ObjectId, String, ObjectId> tuple;
-			tuple = new Tuple3<ObjectId, String, ObjectId>();
+			ObjectId item1, item3;
+			String item2;
 			try {
 				branchName = Helper.getObject(dbo, String.class, "name");
 				if (!Helper.branchNameCheck(branchName)) {
 					throw new ObjectNotFoundException();
 				}
 			} catch (ObjectNotFoundException e) {
-				logger.error("commit " + dbo.get("_id").toString() + " does not have a proper branch name");
 				continue;
 			}
 			try {
 				timestamp = Helper.getObject(dbo, Date.class, "timestamp");
 			} catch (ObjectNotFoundException e) {
-				logger.error("commit " + dbo.get("_id").toString() + " does not have timestamp (Date) field, use null");
 				timestamp = null;
 			}
-			tuple.item1 = (ObjectId) dbo.get("_id");
-			tuple.item2 = branchName + (timestamp == null ? "@" : "@" + timestamp.getTime());
+			item1 = (ObjectId) dbo.get("_id");
+			item2 = branchName + (timestamp == null ? "@" : "@" + timestamp.getTime());
 			try {
-				tuple.item3 = Helper.getObject(dbo, ObjectId.class, "base");
+				item3 = Helper.getObject(dbo, ObjectId.class, "base");
 			} catch (ObjectNotFoundException e) {
-				logger.error("commit " + dbo.get("_id").toString() + " does not have base (ObjectId) field, use null");
-				tuple.item3 = null;
+				item3 = null;
 			}
-			commitList.add(tuple);
+			commitList.add(new CommitListItem(item1, item2, item3));
 		}
 		commitCur.close();
 		
@@ -642,7 +681,6 @@ public class KabiDBAdapter {
 	
 	public void deleteCommit(ObjectId commit) {
 		db.getCollection("commit").remove(new BasicDBObject("_id", commit));
-		//TODO : release nodes
 	}
 	
 	public final DB db() {
@@ -663,37 +701,43 @@ public class KabiDBAdapter {
 		}
 		return collections;
 	}
-
-	final Tuple3<KabiNodeType, DBCollection, DBObject> getNodeDBO(ObjectId oid) {
+	final static class NodeInfo extends Tuple3<KabiNodeType, DBCollection, DBObject> {
+		private KabiNodeType type;
+		private DBCollection collection;
+		private DBObject o;
+		NodeInfo(KabiNodeType type, DBCollection collection, DBObject o) {
+			this.o = o;
+			this.collection = collection;
+			this.type = type;
+		}
+		KabiNodeType type() {
+			return type;
+		}
+		DBCollection collection() {
+			return collection;
+		}
+		DBObject dbo() {
+			return o;
+		}
+	}
+	final NodeInfo getNodeDBO(ObjectId oid) {
 		DBObject query, queryResult;
 		
-		
 		query = new BasicDBObject("_id", oid);
-		
 		
 		for (int i = 0; i < collections().length; i++) {
 			DBCollection collection;
 			collection = collections()[i];
 			queryResult = collection.findOne(query); 
 			if (queryResult != null) {
-				Tuple3<KabiNodeType, DBCollection, DBObject> tp3;
-
-				tp3 = new Tuple3<KabiNodeType, DBCollection, DBObject>();
-				
 				switch (i) {
 					case 0:
-						tp3.item1 = Node.KabiNodeType.DIRECTORY;
-						break;
+						return new NodeInfo(Node.KabiNodeType.DIRECTORY, collection, queryResult);
 					case 1:
-						tp3.item1 = Node.KabiNodeType.FILE;
-						break;
+						return new NodeInfo(Node.KabiNodeType.FILE, collection, queryResult);
 					default:
-						tp3.item1 = Node.KabiNodeType.SUB;
+						return new NodeInfo(Node.KabiNodeType.SUB, collection, queryResult);
 				}
-				
-				tp3.item2 = collection;
-				tp3.item3  = queryResult;
-				return tp3;
 			}
 		}
 		return null;

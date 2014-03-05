@@ -6,12 +6,12 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.log4j.Logger;
-import org.bson.types.Binary;
 import org.bson.types.ObjectId;
 
 import com.mongodb.DBObject;
 import com.silverwzw.kabiFS.KabiDBAdapter;
 import com.silverwzw.kabiFS.util.Tuple2;
+import com.silverwzw.kabiFS.util.Tuple3;
 
 public abstract class Commit {
 	
@@ -132,10 +132,43 @@ public abstract class Commit {
 			}
 			return create;
 		}
+		
+		public abstract Collection<?> subNodes();
 	}
-
+	public static class DirectoryItem extends Tuple2<ObjectId, String> {
+		private DBObject dbo;
+		DirectoryItem(DBObject dbo) {
+			this.dbo = dbo;
+			item1 = null;
+			item2 = null;
+		}
+		public DirectoryItem(ObjectId newDir, String nameOf) {
+			item1 = newDir;
+			item2 = nameOf;
+			dbo = null;
+		}
+		public String name() {
+			if (item2 == null) {
+				if (dbo == null) {
+					return null;
+				}
+				item2 = (String) dbo.get("name");
+			}
+			return item2;
+		}
+		public ObjectId oid() {
+			if (item1 == null) {
+				if (dbo == null) {
+					return null;
+				}
+				item1 = (ObjectId) dbo.get("obj");
+			}
+			return item1;
+		}
+	}
 	public final class KabiDirectoryNode extends KabiNoneDataNode {
-		private Collection<Tuple2<ObjectId, String>> subNodes;
+		
+		private Collection<DirectoryItem> subNodes;
 		{
 			type = KabiNodeType.DIRECTORY;
 			subNodes = null;
@@ -146,19 +179,15 @@ public abstract class Commit {
 		public KabiDirectoryNode(DBObject dbo) {
 			super(dbo);
 		}
-		public Collection<Tuple2<ObjectId, String>> subNodes() {
+		public Collection<DirectoryItem> subNodes() {
 			if (subNodes == null) {
 				List<?> arc;
 				arc = (List<?>) super.dbo().get("arc");
-				subNodes = new LinkedList<Tuple2<ObjectId, String>>();
+				subNodes = new LinkedList<DirectoryItem>();
 				if (arc != null) {
 					for (Object o : arc) {
 						if (o instanceof DBObject) {
-							Tuple2<ObjectId, String> tuple;
-							tuple = new Tuple2<ObjectId, String>();
-							tuple.item1 = (ObjectId)((DBObject) o).get("obj");
-							tuple.item2 = (String)((DBObject) o).get("name");
-							subNodes.add(tuple);
+							subNodes.add(new DirectoryItem((DBObject) o));
 						}
 					}
 				}
@@ -167,8 +196,58 @@ public abstract class Commit {
 		}
 	}
 	
+	public static class DataBlock extends Tuple3<ObjectId, Long, Long> {
+		private DBObject dbo;
+		public DataBlock(DBObject dbo) {
+			this.dbo = dbo;
+			item1 = null;
+			item2 = null;
+			item3 = null;
+		}
+		public DataBlock(ObjectId subnodeoid, long offset, long omit) {
+			dbo = null;
+			if (subnodeoid == null) {
+				throw new NullPointerException();
+			}
+			item1 = subnodeoid;
+			item2 = offset;
+			item3 = omit;
+		}
+		public DataBlock(ObjectId subnodeoid, long offset) {
+			dbo = null;
+			if (subnodeoid == null) {
+				throw new NullPointerException();
+			}
+			item1 = subnodeoid;
+			item2 = offset;
+			item3 = 0L;
+		}
+		public final long omit() {
+			if (item3 == null) {
+				Number b;
+				b = (Number) dbo.get("omit");
+				item3 = b == null ? 0 : b.longValue(); 
+			}
+			return item3;
+		}
+		public final long endoffset() {
+			if (item2 == null) {
+				item2 = ((Number) dbo.get("offset")).longValue();
+			}
+			return item2;
+		}
+		public final ObjectId oid() {
+			if (item1 == null) {
+				item1 = (ObjectId) dbo.get("obj");
+			}
+			return item1;
+		}
+	}
+	
 	public final class KabiFileNode extends KabiNoneDataNode {
-		private LinkedList<Tuple2<ObjectId, Long>> subNodes;
+		
+		
+		private LinkedList<DataBlock> subNodes;
 		private long size;
 		{
 			type = KabiNodeType.FILE;
@@ -181,19 +260,15 @@ public abstract class Commit {
 		public KabiFileNode(DBObject dbo) {
 			super(dbo);
 		}
-		public LinkedList<Tuple2<ObjectId, Long>> subNodes() {
+		public LinkedList<DataBlock> subNodes() {
 			if (subNodes == null) {
 				List<?> arc;
 				arc = (List<?>) super.dbo().get("arc");
-				subNodes = new LinkedList<Tuple2<ObjectId, Long>>();
+				subNodes = new LinkedList<DataBlock>();
 				if (arc != null) {
 					for (Object o : arc) {
 						if (o instanceof DBObject) {
-							Tuple2<ObjectId, Long> tuple;
-							tuple = new Tuple2<ObjectId, Long>();
-							tuple.item1 = (ObjectId)((DBObject) o).get("obj");
-							tuple.item2 = ((Number)((DBObject) o).get("offset")).longValue();
-							subNodes.add(tuple);
+							subNodes.add(new DataBlock((DBObject)o));
 						}
 					}
 				}
@@ -204,7 +279,7 @@ public abstract class Commit {
 			if (size < 0) {
 				Number sizeN;
 				sizeN = (Number) dbo().get("size");
-				size = (sizeN != null) ? sizeN.longValue() : subNodes().peekLast().item2;
+				size = (sizeN != null) ? sizeN.longValue() : subNodes().peekLast().endoffset();
 			}
 			return size;
 		}
@@ -226,12 +301,12 @@ public abstract class Commit {
 			if (data == null) {
 				Object o;
 				o = super.dbo().get("data");
-				if (o instanceof Binary) {
-					data = ((Binary) o).getData();
+				if (o instanceof byte[]) {
+					data = (byte[])o;
 				} else if (o instanceof String) {
 					data = ((String) o).getBytes();
 				} else {
-					data = new byte[0];
+					throw new RuntimeException("unknown data type : " + o.getClass().getName());
 				}
 			}
 			return data;

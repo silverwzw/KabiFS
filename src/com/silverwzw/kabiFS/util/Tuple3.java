@@ -1,12 +1,12 @@
 package com.silverwzw.kabiFS.util;
 
 public class Tuple3<C1, C2, C3> extends Tuple2<C1, C2> {
-	public C3 item3;
+	protected C3 item3;
 	{
 		item3 = null;
 	}
 	
-	public Tuple3() {}
+	protected Tuple3() {}
 	public Tuple3(C1 c1, C2 c2, C3 c3) {
 		super(c1,c2);
 		item3 = c3;

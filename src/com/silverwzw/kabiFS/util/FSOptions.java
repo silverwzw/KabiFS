@@ -7,12 +7,12 @@ import com.silverwzw.kabiFS.structure.Node;
 
 public final class FSOptions {
 	private long max_volumn;
-	private int min_block_size, max_block_size;
+	private int min_block_size_kilo, max_block_size_kilo;
 	private String subnode_collection, file_collection, directory_collection;
 	private final String fsoptions_collection;
 	{
-		min_block_size = 1024;
-		max_block_size = 4096;
+		min_block_size_kilo = 1024;
+		max_block_size_kilo = 4096;
 		max_volumn = Long.MAX_VALUE;
 		subnode_collection = "subfile";
 		file_collection = "file";
@@ -25,22 +25,22 @@ public final class FSOptions {
 		
 		dbo = dbcoll.findOne(new BasicDBObject("_id", "min_block_size"));
 		if (dbo != null) {
-			min_block_size = ((Number) dbo.get("value")).intValue();
-			if (min_block_size < 512) {
-				min_block_size = 512;
-			} else if (min_block_size > 3145728) {
-				min_block_size = 3145728;
+			min_block_size_kilo = ((Number) dbo.get("value")).intValue();
+			if (min_block_size_kilo < 512) {
+				min_block_size_kilo = 512;
+			} else if (min_block_size_kilo > 3145728) {
+				min_block_size_kilo = 3145728;
 			}
 		}
 		
 		dbo = dbcoll.findOne(new BasicDBObject("_id", "max_block_size"));
 		if (dbo != null) {
-			max_block_size = ((Number) dbo.get("value")).intValue();
-			if (max_block_size < 3 * min_block_size) {
-				max_block_size = 3 * min_block_size;
+			max_block_size_kilo = ((Number) dbo.get("value")).intValue();
+			if (max_block_size_kilo < 3 * min_block_size_kilo) {
+				max_block_size_kilo = 3 * min_block_size_kilo;
 			}
-			if (max_block_size > 12582912) {
-				max_block_size = 12582912;
+			if (max_block_size_kilo > 12582912) {
+				max_block_size_kilo = 12582912;
 			}
 		}
 		
@@ -78,18 +78,18 @@ public final class FSOptions {
 	}
 	public final String toString(){
 		return
-				"min_block_size = " + min_block_size + "\n"
-				+ "max_block_size = " + max_block_size + "\n"
+				"min_block_size = " + min_block_size_kilo + "kb\n"
+				+ "max_block_size = " + max_block_size_kilo + "kb\n"
 				+ "max_volumn = " + max_volumn + "\n\n"
 				+ "file collection : " + file_collection + "\n"
 				+ "subnode collection : " + subnode_collection + "\n"
 				+ "diretcoy collection : " + directory_collection + "\n";
 	}
-	public final int min_block_size(){
-		return min_block_size;
+	public final long min_block_size(){
+		return min_block_size_kilo * 1024;
 	}
-	public final int max_block_size(){
-		return max_block_size;
+	public final long max_block_size(){
+		return max_block_size_kilo * 1204;
 	}
 	public final long max_volumn(){
 		return max_volumn;
