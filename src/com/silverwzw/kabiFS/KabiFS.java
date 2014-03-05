@@ -934,10 +934,12 @@ public class KabiFS extends MetaFS {
 			if (offset < 0) {
 				return -ErrorCodes.EINVAL();
 			}
+			//TODO
+			System.out.println("truncate get called : " + offset);
 		
 			AccessNode an;
 			KabiFileNode fnode;
-			Collection<DataBlock> subs;
+			List<DataBlock> subs;
 			
 			an = getNode(path, Constant.W_OK);
 			
@@ -959,21 +961,24 @@ public class KabiFS extends MetaFS {
 			
 			subs = new LinkedList<DataBlock>();
 			
-			for (DataBlock en : fnode.subNodes()) {
-				if (en.endoffset() < offset) {
-					subs.add(en);
-				} else if (en.endoffset() == offset){
-					subs.add(en);
-					break;
-				} else {
-					subs.add(new DataBlock(en.oid(), offset));
-					break;
+			if (offset != 0) {
+				for (DataBlock en : fnode.subNodes()) {
+					if (en.endoffset() < offset) {
+						subs.add(en);
+					} else if (en.endoffset() == offset){
+						subs.add(en);
+						break;
+					} else {
+						subs.add(new DataBlock(en.oid(), offset));
+						break;
+					}
 				}
 			}
+			
 			ObjectId oid;
 			PatchResult pr;
 			
-			oid = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), fnode.subNodes(), offset);
+			oid = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), subs, offset);
 			pr = commit.patch(fnode.id().oid(), oid);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
