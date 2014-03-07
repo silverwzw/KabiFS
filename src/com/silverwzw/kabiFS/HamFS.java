@@ -24,7 +24,7 @@ import net.fusejna.XattrListFiller;
 import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
-public abstract class MetaFS extends FuseFilesystem {
+public class HamFS extends FuseFilesystem {
 	
 	@SuppressWarnings("unused")
 	private static final Logger logger;
@@ -32,7 +32,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	
 	static {
 		metaDirName = ".kabimeta";
-		logger = Logger.getLogger(MetaFS.class);
+		logger = Logger.getLogger(HamFS.class);
 	}
 	
 
@@ -40,7 +40,7 @@ public abstract class MetaFS extends FuseFilesystem {
 	protected final KabiDBAdapter datastore;
 	public final FSOptions fsoptions;
 	
-	public MetaFS(MountOptions options) {
+	public HamFS(MountOptions options) {
 		mntoptions = options; 
 		datastore = new KabiDBAdapter(options.mongoConn());
 		fsoptions = datastore.fsoptions();
@@ -88,15 +88,12 @@ public abstract class MetaFS extends FuseFilesystem {
 
 	public final void afterUnmount(File mountPoint) {}
 
-	public int bmap(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
+	public final int bmap(String path, FileInfoWrapper info) {
 		return 0;
 	}
 
-	@Override
 	public int create(String path, ModeWrapper mode, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
-		return -ErrorCodes.ENOSYS();
+		return metaNoAccess(path);
 	}
 	
 	public final void beforeUnmount(File mountPoint) {}
@@ -105,21 +102,15 @@ public abstract class MetaFS extends FuseFilesystem {
 		return getattr(path, stat);
 	}
 
-	@Override
-	public int flush(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
+	public final int flush(String path, FileInfoWrapper info) {
 		return 0;
 	}
 
-	@Override
-	public int fsync(String path, int datasync, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
+	public final int fsync(String path, int datasync, FileInfoWrapper info) {
 		return 0;
 	}
 
-	@Override
-	public int fsyncdir(String path, int datasync, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
+	public final int fsyncdir(String path, int datasync, FileInfoWrapper info) {
 		return 0;
 	}
 
@@ -127,7 +118,6 @@ public abstract class MetaFS extends FuseFilesystem {
 		return truncate(path, offset);
 	}
 
-	@Override
 	public int getattr(String path, StatWrapper stat) {
 		if (!path.startsWith(Helper.buildPath(metaDirName))) {
 			return -1;
@@ -179,10 +169,8 @@ public abstract class MetaFS extends FuseFilesystem {
 		return mntoptions.fuseOptions();
 	}
 
-	@Override
-	public int getxattr(String path, String xattr, ByteBuffer buf, long size,
+	public final int getxattr(String path, String xattr, ByteBuffer buf, long size,
 			long position) {
-		// TODO Auto-generated method stub
 		return -ErrorCodes.ENOSYS();
 	}
 
@@ -192,16 +180,12 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.EMLINK();
 	}
 
-	@Override
 	public int listxattr(String path, XattrListFiller filler) {
-		// TODO Auto-generated method stub
 		return -ErrorCodes.ENOSYS();
 	}
 
-	@Override
-	public int lock(String path, FileInfoWrapper info, FlockCommand command,
+	public final int lock(String path, FileInfoWrapper info, FlockCommand command,
 			FlockWrapper flock) {
-		// TODO Auto-generated method stub
 		return -ErrorCodes.ENOSYS();
 	}
 
@@ -256,21 +240,15 @@ public abstract class MetaFS extends FuseFilesystem {
 		return -ErrorCodes.EINVAL();
 	}
 
-	@Override
 	public int release(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
-	@Override
 	public int releasedir(String path, FileInfoWrapper info) {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
-	@Override
-	public int removexattr(String path, String xattr) {
-		// TODO Auto-generated method stub
+	public final int removexattr(String path, String xattr) {
 		return -ErrorCodes.ENOSYS();
 	}
 
@@ -290,16 +268,12 @@ public abstract class MetaFS extends FuseFilesystem {
 		}
 	}
 
-	@Override
-	public int setxattr(String path, ByteBuffer buf, long size, int flags,
+	public final int setxattr(String path, ByteBuffer buf, long size, int flags,
 			long position) {
-		// TODO Auto-generated method stub
 		return -ErrorCodes.ENOSYS();
 	}
 
-	@Override
-	public int statfs(String path, StatvfsWrapper wrapper) {
-		// TODO Auto-generated method stub
+	public final int statfs(String path, StatvfsWrapper wrapper) {
 		return 0;
 	}
 
@@ -333,6 +307,16 @@ public abstract class MetaFS extends FuseFilesystem {
 	public final void setLog(Logger logger) {
 		super.log(logger);
 	}
+
+	public int chmod(String path, ModeWrapper mode) {
+		return 0;
+	}
+
+	public int chown(String path, long uid, long gid) {
+		return 0;
+	}
+
+	public void destroy() {}
 	
 	private final int metaNoAccess(String path) {
 		String meta;

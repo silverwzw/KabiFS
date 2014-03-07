@@ -12,6 +12,7 @@
 	},
 	"fuse" : [
 		"-oallow_other",
-		"-omax_read=1"
+		"-omax_read=1",
+		"-s"
 	]
 }

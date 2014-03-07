@@ -41,13 +41,13 @@ import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
-public class KabiFS extends MetaFS {
+public class KabiFS extends HamFS {
 	
-	@SuppressWarnings("unused")
-	private static final Logger logger;
+	private static final Logger logger, fsoplogger;
 	
 	static {
 		logger = Logger.getLogger(KabiFS.class);
+		fsoplogger = Logger.getLogger("FSOP");
 	}
 	
 	private final KabiWritableCommit commit;
@@ -214,6 +214,7 @@ public class KabiFS extends MetaFS {
 	{
 		commit.readLock().lock();
 		try {
+			fsoplogger.info("getattr : " + path);
 			if (path.equals(Helper.buildPath())) { // Root directory
 				stat.setMode(NodeType.DIRECTORY);
 				return 0;
@@ -228,6 +229,7 @@ public class KabiFS extends MetaFS {
 				return -ErrorCodes.ENOENT();
 			}
 			Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).node());
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -240,7 +242,9 @@ public class KabiFS extends MetaFS {
 
 	public final int read(final String path, final ByteBuffer buffer, final long read_size, final long read_offset, final FileInfoWrapper info)
 	{
+
 		int superRead;
+		
 		superRead = super.read(path, buffer, read_size, read_offset, info);
 		if (superRead >= 0) {
 			return superRead;
@@ -249,6 +253,8 @@ public class KabiFS extends MetaFS {
 		commit.readLock().lock();
 		
 		try {
+			fsoplogger.info("read : " + path);
+			
 			NodeId nid;
 			AccessNode nodeinfo;
 			
@@ -304,7 +310,7 @@ public class KabiFS extends MetaFS {
 				buffer.put((byte)'\0');
 				byte_count++;
 			}
-			
+			fsoplogger.info("0");
 			return byte_count;
 			
 		} catch (PathResolException ex) {
@@ -324,6 +330,8 @@ public class KabiFS extends MetaFS {
 		commit.readLock().lock();
 		
 		try {
+			fsoplogger.info("opendir : " + path);
+			
 			NodeId nid;
 			AccessNode nodeinfo;
 			
@@ -335,6 +343,7 @@ public class KabiFS extends MetaFS {
 			
 			nodeinfo = getNode(nid, Constant.R_OK);
 			
+			fsoplogger.info("0");
 			return nodeinfo.permission() ? 0 : -ErrorCodes.EACCES();
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -358,6 +367,8 @@ public class KabiFS extends MetaFS {
 		commit.readLock().lock();
 		
 		try {
+			fsoplogger.info("readdir : " + path);
+			
 			NodeId nid;
 			AccessNode nodeinfo;
 			nid = findNodeByPath(path).nodeId();
@@ -374,6 +385,7 @@ public class KabiFS extends MetaFS {
 			for (DirectoryItem diritem : ((KabiDirectoryNode) nodeinfo.node()).subNodes()) {
 				filler.add(diritem.name());
 			}
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -394,6 +406,8 @@ public class KabiFS extends MetaFS {
 
 		commit.writeLock().lock();
 		try {
+			fsoplogger.info("chmod : " + path);
+			
 			NodeId nid;
 			AccessNode nodeinfo;
 			
@@ -417,6 +431,7 @@ public class KabiFS extends MetaFS {
 				dirNode = (KabiDirectoryNode) nodeinfo.node();
 				
 				if (dirNode.mode() == (int) (mode.mode() % 01000)) { // no change
+					fsoplogger.info("0");
 					return 0;
 				}
 				
@@ -433,6 +448,7 @@ public class KabiFS extends MetaFS {
 				fileNode = (KabiFileNode) nodeinfo.node();
 				
 				if (fileNode.mode() == (int) (mode.mode() % 01000)) { // no change
+					fsoplogger.info("0");
 					return 0;
 				}
 				
@@ -444,6 +460,7 @@ public class KabiFS extends MetaFS {
 						fileNode.subNodes(),
 						fileNode.size());
 			} else {
+				fsoplogger.info("-1");
 				return -1;
 			}
 			
@@ -452,6 +469,7 @@ public class KabiFS extends MetaFS {
 			pr = commit.patch(nid.oid(), newObjId);
 			path2nodeCache.dirty(path);
 			commit.try2remove(pr.oldId());
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -466,6 +484,8 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+			fsoplogger.info("chown : " + path);
+			
 			AccessNode nodeinfo;
 
 			nodeinfo = getNode(path, Constant.W_OK);
@@ -486,6 +506,7 @@ public class KabiFS extends MetaFS {
 				dirNode = (KabiDirectoryNode) nodeinfo.node();
 				
 				if (dirNode.uid() == uid && dirNode.gid() == gid) { // no change
+					fsoplogger.info("0");
 					return 0;
 				}
 				
@@ -502,6 +523,7 @@ public class KabiFS extends MetaFS {
 				fileNode = (KabiFileNode) nodeinfo.node();
 				
 				if (fileNode.uid() == uid && fileNode.gid() == gid) { // no change
+					fsoplogger.info("0");
 					return 0;
 				}
 				
@@ -514,6 +536,7 @@ public class KabiFS extends MetaFS {
 						fileNode.size()
 						);
 			} else {
+				fsoplogger.info("-1");
 				return -1;
 			}
 			
@@ -521,6 +544,7 @@ public class KabiFS extends MetaFS {
 			pr = commit.patch(nodeinfo.node().id().oid(), newObjId);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -535,6 +559,9 @@ public class KabiFS extends MetaFS {
 		commit.readLock().lock();
 		
 		try {
+
+			fsoplogger.info("access : " + path);
+			
 			int superAccess;
 			superAccess = super.access(path, access);
 			if (superAccess != -ErrorCodes.ENOENT()) {
@@ -547,12 +574,14 @@ public class KabiFS extends MetaFS {
 			
 			if (nid == null) {
 				if (access == Constant.F_OK) {
+					fsoplogger.info("-1");
 					return -1;
 				} else {
 					return -ErrorCodes.ENOENT();
 				}
 			}
 			
+			fsoplogger.info("0?-1");
 			return getNode(nid, access).permission() ? 0 : -1 ;
 			
 		} catch (PathResolException ex) {
@@ -568,6 +597,8 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+			fsoplogger.info("mkdir : " + path);
+			
 			int superMkdir;
 			superMkdir = super.mkdir(path, mode);
 			if (superMkdir != 0) {
@@ -629,6 +660,7 @@ public class KabiFS extends MetaFS {
 			pr = commit.patch(parentNid.oid(), newParent);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(parentPath);
+			fsoplogger.info("0");
 			return 0;
 			
 		} catch (PathResolException ex) {
@@ -645,6 +677,7 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+			fsoplogger.info("unlink : " + path);
 			int superUnlink;
 			superUnlink = super.unlink(path);
 			if (superUnlink != -ErrorCodes.ENOENT()) {
@@ -662,6 +695,7 @@ public class KabiFS extends MetaFS {
 			n2 = findNodeByPath(path);
 			fileNid = n2.nodeId();
 			if (fileNid == null) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			
@@ -691,11 +725,13 @@ public class KabiFS extends MetaFS {
 			
 			newpoid = commit.addDirNode2db(dnode.uid(), dnode.gid(), dnode.mode(), new Date(), subs);
 			pr = commit.patch(parentNid.oid(), newpoid);
-			
+
 			path2nodeCache.dirty(ppath);
+			path2nodeCache.dirty(path);
 			commit.try2remove(fileNid.oid());
 			commit.try2remove(pr.oldId());
 			
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -710,6 +746,8 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+
+			fsoplogger.info("rmdir : " + path);
 			
 			int superRmdir;
 			superRmdir = super.rmdir(path);
@@ -764,6 +802,7 @@ public class KabiFS extends MetaFS {
 			path2nodeCache.dirty(Helper.parentPath(path));
 			commit.try2remove(nids.nodeId().oid());
 			commit.try2remove(pr.oldId());
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -779,6 +818,8 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+
+			fsoplogger.info("rename : " + path);
 			
 			int superRename;
 			superRename = super.rename(path, newName);
@@ -787,6 +828,7 @@ public class KabiFS extends MetaFS {
 			}
 			
 			if (path.equals(newName)) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			
@@ -911,6 +953,7 @@ public class KabiFS extends MetaFS {
 				pr = commit.patch(psn.id().oid(), noid);
 				commit.try2remove(pr.oldId());
 			}
+			fsoplogger.info("0");
 			return 0;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
@@ -925,6 +968,9 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+
+			fsoplogger.info("truncate : " + path);
+			
 			int superTruncate;
 			superTruncate = super.truncate(path, offset);
 			if (superTruncate != -ErrorCodes.ENOENT()) {
@@ -934,9 +980,7 @@ public class KabiFS extends MetaFS {
 			if (offset < 0) {
 				return -ErrorCodes.EINVAL();
 			}
-			//TODO
-			System.out.println("truncate get called : " + offset);
-		
+			
 			AccessNode an;
 			KabiFileNode fnode;
 			List<DataBlock> subs;
@@ -956,6 +1000,7 @@ public class KabiFS extends MetaFS {
 			fnode = (KabiFileNode) an.node();
 			
 			if (fnode.size() == offset) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			
@@ -982,6 +1027,7 @@ public class KabiFS extends MetaFS {
 			pr = commit.patch(fnode.id().oid(), oid);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
+			fsoplogger.info("0");
 			return 0;
 		} catch (MongoException ex) {
 			return -ErrorCodes.EIO();
@@ -995,6 +1041,8 @@ public class KabiFS extends MetaFS {
 		commit.writeLock().lock();
 		
 		try {
+			
+			fsoplogger.info("utimens : " + path);
 				
 			int superUtimens;
 			superUtimens = super.utimens(path, null);
@@ -1020,6 +1068,7 @@ public class KabiFS extends MetaFS {
 			}
 			
 			if (wrapper.mod_nsec() == Constant.UTIME_OMIT) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			
@@ -1042,6 +1091,7 @@ public class KabiFS extends MetaFS {
 			pr = commit.patch(an.node().id().oid(), oid);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
+			fsoplogger.info("0");
 			return 0;
 		} catch (MongoException ex) {
 			return -ErrorCodes.EIO();
@@ -1054,11 +1104,8 @@ public class KabiFS extends MetaFS {
 	public final int write(String path, ByteBuffer buf, long writeSize, long writeOffset, FileInfoWrapper info) {
 		commit.writeLock().lock();
 		try {
-			System.out.println("write get called: offset = " + writeOffset + ", size = " + writeSize);
-			for (int i = 0; i < writeSize; i++) {
-				System.out.print("(" + ((char)buf.get(i)) + ")" + buf.get(i) + ",");
-			}
-			System.out.println();
+			fsoplogger.info("write : " + path);
+			
 			int superWrite;
 			superWrite = super.write(path, buf, writeSize, writeOffset, info);
 			if (superWrite != -ErrorCodes.ENOENT()) {
@@ -1073,6 +1120,7 @@ public class KabiFS extends MetaFS {
 				return -ErrorCodes.EACCES();
 			}
 			if (writeSize <= 0) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			if (isFull()) {
@@ -1092,12 +1140,9 @@ public class KabiFS extends MetaFS {
 			
 			
 			for ( DataBlock block : fnode.subNodes()) {
-				System.out.println("processing block:" + block.oid());
 				if (block.endoffset() <= writeOffset || lastoffset <= writeOffset + writeSize) {
-					System.out.println("\tdirectly add");
 					newSubNodes.add(block);
 				} else if (writeOffset > lastoffset + fsoptions.min_block_size() && writeOffset + writeSize >= block.endoffset() && block.endoffset() - writeOffset >= fsoptions.min_block_size()) {
-					System.out.println("\ttruncate and add");
 					byte[] bytes2write;
 					ObjectId newSubNodeOid;
 					
@@ -1112,7 +1157,6 @@ public class KabiFS extends MetaFS {
 					newSubNodes.add(new DataBlock(newSubNodeOid, block.endoffset(), 0));
 					
 				} else if (writeOffset <= lastoffset && writeOffset + writeSize >= lastoffset + fsoptions.min_block_size() && writeOffset + writeSize <= block.endoffset() - fsoptions.min_block_size()) {
-					System.out.println("\tadd and truncate");
 					byte[] bytes2write;
 					ObjectId newSubNodeOid;
 					
@@ -1127,7 +1171,6 @@ public class KabiFS extends MetaFS {
 					newSubNodes.add(new DataBlock(block.oid(), block.endoffset(), writeOffset + writeSize - lastoffset));
 					
 				} else if (lastoffset <= writeOffset && writeOffset + writeSize < block.endoffset()) {
-					System.out.println("\toverwrite");
 					
 					byte[] bytes2write, old_block_data;
 					int write_pointer;
@@ -1195,9 +1238,68 @@ public class KabiFS extends MetaFS {
 			
 			newFileNode = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), newSubNodes, newSize);
 			pr = commit.patch(fnode.id().oid(), newFileNode);
-			System.out.println("patching " + fnode.id().oid() + "->" + newFileNode);
 			commit.try2remove(pr.oldId());
+			path2nodeCache.dirty(path);
+			fsoplogger.info("0");
 			return (int) writeSize;
+		} catch (MongoException ex) {
+			return -ErrorCodes.EIO();
+		} catch (PathResolException ex) {
+			return -ErrorCodes.EACCES();
+		} finally {
+			commit.writeLock().unlock();
+		}
+	}
+	
+	public final int create(String path, ModeWrapper mode, FileInfoWrapper info) {
+		commit.writeLock().lock();
+		try {
+
+			fsoplogger.info("create : " + path);
+			int ham;
+			ham = super.create(path, mode, info);
+			if (ham != -ErrorCodes.ENOENT()) {
+				return ham;
+			}
+			
+			AccessNode an;
+			
+			an = getNode(Helper.parentPath(path), Constant.W_OK);
+			
+			if (!an.permission()) {
+				return -ErrorCodes.EACCES();
+			} else if (an.node().type() != KabiNodeType.DIRECTORY) {
+				return -ErrorCodes.ENOTDIR(); 
+			}
+			
+			ObjectId newFileOid, newDirOid;
+			PatchResult pr;
+			KabiDirectoryNode dir;
+			StructFuseContext context;
+			Collection<DirectoryItem> items;
+			
+			context = getFuseContext();
+			dir = (KabiDirectoryNode) an.node();
+			items = dir.subNodes();
+			
+			newFileOid = commit.addFileNode2db(
+					context.uid.longValue(),
+					context.gid.longValue(),
+					(int)mode.mode() % 01000,
+					new Date(),
+					new ArrayList<DataBlock>(0),
+					0);
+			
+			items.add(new DirectoryItem(newFileOid, Helper.nameOf(path)));
+			
+			newDirOid = commit.addDirNode2db(dir.uid(), dir.gid(), dir.mode(), new Date(), items);
+			
+			pr = commit.patch(dir.id().oid(), newDirOid);
+			path2nodeCache.dirty(Helper.parentPath(path));
+			commit.try2remove(pr.oldId());
+			fsoplogger.info("0");
+			return 0;
+			
 		} catch (MongoException ex) {
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {
