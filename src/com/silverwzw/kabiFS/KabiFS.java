@@ -138,6 +138,9 @@ public class KabiFS extends HamFS {
 	private NodeAndParent findNodeByPath(String path) throws PathResolException {
 
 		NodeId nodenid, parentnid;
+
+		//TODO
+		if (tr) {fsoplogger.info("\tfindNodeByPath " + path);}
 		
 		nodenid = path2nodeCache.get(path);
 		if (!path.equals(Helper.buildPath())) {
@@ -149,9 +152,15 @@ public class KabiFS extends HamFS {
 		if (nodenid != null) {
 			return new NodeAndParent(nodenid, parentnid);
 		}
+		
+		//TODO
+		if (tr) {fsoplogger.info("\tcahce dirty, start searching");}
 
 		nodenid = commit.root().id();
 		parentnid = null;
+		
+		//TODO
+		if (tr) {fsoplogger.info("\t/ : " + nodenid.oid());}
 		
 		if (path.equals(Helper.buildPath())) {
 			path2nodeCache.put(path, nodenid);
@@ -191,8 +200,14 @@ public class KabiFS extends HamFS {
 			parentnid = nodenid;
 			nodenid = null;
 			for (DirectoryItem sub : dnode.subNodes()) {
+				//TODO
+				if (tr) {fsoplogger.info("\t" + sub.name());}
 				if (sub.name().equals(comps[i])) {
 					nodenid = commit.getNodeId(sub.oid());
+
+					//TODO
+					if (tr) {fsoplogger.info("\t" + comps[i] + " : " + sub.oid() + " -> " + nodenid.oid() );}
+					
 					break;
 				}
 			}
@@ -217,15 +232,20 @@ public class KabiFS extends HamFS {
 			fsoplogger.info("getattr : " + path);
 			if (path.equals(Helper.buildPath())) { // Root directory
 				stat.setMode(NodeType.DIRECTORY);
+				fsoplogger.info("0");
 				return 0;
 			}
 			if (super.getattr(path, stat) >= 0) {
+				fsoplogger.info("0");
 				return 0;
 			}
 			
 			NodeId nid;
 			nid = findNodeByPath(path).nodeId();
 			if (nid == null) {
+				fsoplogger.info("ENOENT");
+				//TODO
+				if (path.equals("/a")) {tr = false;}
 				return -ErrorCodes.ENOENT();
 			}
 			Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).node());
@@ -560,7 +580,7 @@ public class KabiFS extends HamFS {
 		
 		try {
 
-			fsoplogger.info("access : " + path);
+			fsoplogger.info("access : " + path + ", " + access);
 			
 			int superAccess;
 			superAccess = super.access(path, access);
@@ -581,9 +601,11 @@ public class KabiFS extends HamFS {
 				}
 			}
 			
-			fsoplogger.info("0?-1");
-			return getNode(nid, access).permission() ? 0 : -1 ;
 			
+			//return getNode(nid, access).permission() ? 0 : -1 ;
+			int ret = getNode(nid, access).permission() ? 0 : -1 ;
+			fsoplogger.info(ret);
+			return ret;
 		} catch (PathResolException ex) {
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
@@ -819,7 +841,7 @@ public class KabiFS extends HamFS {
 		
 		try {
 
-			fsoplogger.info("rename : " + path);
+			fsoplogger.info("rename : " + path + " -> " + newName);
 			
 			int superRename;
 			superRename = super.rename(path, newName);
@@ -898,7 +920,8 @@ public class KabiFS extends HamFS {
 				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), new Date(), subnodes);
 				
 				PatchResult pr1, pr2;
-				
+
+				path2nodeCache.dirty(Helper.parentPath(path));
 				path2nodeCache.dirty(path);
 				path2nodeCache.dirty(newName);
 				pr1 = commit.patch(psn.id().oid(), newps);
@@ -923,13 +946,18 @@ public class KabiFS extends HamFS {
 				subnodes_pt.addAll(ptn.subNodes());
 				subnodes_pt.add(new DirectoryItem(s.node().id().oid(), Helper.nameOf(newName)));
 	
-				path2nodeCache.dirty(path);
 				ObjectId newps, newpt;
 				PatchResult pr1, pr2;
 				newps = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), new Date(), subnodes_ps);
 				newpt = commit.addDirNode2db(ptn.uid(), ptn.gid(), ptn.mode(), new Date(), subnodes_pt);
+				
+				path2nodeCache.dirty(path);
+				path2nodeCache.dirty(Helper.parentPath(path));
+				path2nodeCache.dirty(Helper.parentPath(newName));
+				
 				pr1 = commit.patch(psn.id().oid(), newps);
 				pr2 = commit.patch(ptn.id().oid(), newpt);
+				
 				commit.try2remove(pr1.oldId());
 				commit.try2remove(pr2.oldId());
 			} else {
@@ -949,6 +977,8 @@ public class KabiFS extends HamFS {
 					}
 				}
 				
+				path2nodeCache.dirty(path);
+				path2nodeCache.dirty(Helper.parentPath(path));
 				noid = commit.addDirNode2db(psn.uid(), psn.gid(), psn.mode(), new Date(), subnodes);
 				pr = commit.patch(psn.id().oid(), noid);
 				commit.try2remove(pr.oldId());
@@ -963,13 +993,17 @@ public class KabiFS extends HamFS {
 			commit.writeLock().unlock();
 		}
 	}
-
+	//TODO
+	boolean tr = false;
 	public final int truncate(String path, long offset) {
 		commit.writeLock().lock();
 		
 		try {
 
-			fsoplogger.info("truncate : " + path);
+			fsoplogger.info("truncate : " + path + ", " + offset);
+			
+			//TODO
+			if (path.equals("/a")) {tr = true;}
 			
 			int superTruncate;
 			superTruncate = super.truncate(path, offset);
