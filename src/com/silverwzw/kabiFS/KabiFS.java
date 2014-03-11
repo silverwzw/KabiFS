@@ -43,10 +43,9 @@ import net.fusejna.types.TypeMode.NodeType;
 
 public class KabiFS extends HamFS {
 	
-	private static final Logger logger, fsoplogger;
+	private static final Logger fsoplogger;
 	
 	static {
-		logger = Logger.getLogger(KabiFS.class);
 		fsoplogger = Logger.getLogger("FSOP");
 	}
 	
@@ -138,9 +137,6 @@ public class KabiFS extends HamFS {
 	private NodeAndParent findNodeByPath(String path) throws PathResolException {
 
 		NodeId nodenid, parentnid;
-
-		//TODO
-		if (tr) {fsoplogger.info("\tfindNodeByPath " + path);}
 		
 		nodenid = path2nodeCache.get(path);
 		if (!path.equals(Helper.buildPath())) {
@@ -153,14 +149,8 @@ public class KabiFS extends HamFS {
 			return new NodeAndParent(nodenid, parentnid);
 		}
 		
-		//TODO
-		if (tr) {fsoplogger.info("\tcahce dirty, start searching");}
-
 		nodenid = commit.root().id();
 		parentnid = null;
-		
-		//TODO
-		if (tr) {fsoplogger.info("\t/ : " + nodenid.oid());}
 		
 		if (path.equals(Helper.buildPath())) {
 			path2nodeCache.put(path, nodenid);
@@ -200,14 +190,8 @@ public class KabiFS extends HamFS {
 			parentnid = nodenid;
 			nodenid = null;
 			for (DirectoryItem sub : dnode.subNodes()) {
-				//TODO
-				if (tr) {fsoplogger.info("\t" + sub.name());}
 				if (sub.name().equals(comps[i])) {
 					nodenid = commit.getNodeId(sub.oid());
-
-					//TODO
-					if (tr) {fsoplogger.info("\t" + comps[i] + " : " + sub.oid() + " -> " + nodenid.oid() );}
-					
 					break;
 				}
 			}
@@ -232,28 +216,28 @@ public class KabiFS extends HamFS {
 			fsoplogger.info("getattr : " + path);
 			if (path.equals(Helper.buildPath())) { // Root directory
 				stat.setMode(NodeType.DIRECTORY);
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			if (super.getattr(path, stat) >= 0) {
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			
 			NodeId nid;
 			nid = findNodeByPath(path).nodeId();
 			if (nid == null) {
-				fsoplogger.info("ENOENT");
-				//TODO
-				if (path.equals("/a")) {tr = false;}
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			Helper.setMode(stat, (KabiNoneDataNode) getNode(nid, 0).node());
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
@@ -273,7 +257,7 @@ public class KabiFS extends HamFS {
 		commit.readLock().lock();
 		
 		try {
-			fsoplogger.info("read : " + path);
+			fsoplogger.info("read : " + path + ", " + read_offset + " - " + (read_offset + read_size));
 			
 			NodeId nid;
 			AccessNode nodeinfo;
@@ -281,18 +265,22 @@ public class KabiFS extends HamFS {
 			nid = findNodeByPath(path).nodeId();
 			nodeinfo = getNode(nid, Constant.R_OK);
 			if (nid == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 
 			if (nodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tEISDIR");
 				return ErrorCodes.EISDIR();
 			}
 
 			if (nodeinfo.node().type() != KabiNodeType.FILE) {
+				fsoplogger.info("\tENOENT");
 				return ErrorCodes.ENOENT();
 			}
 			
 			if (!nodeinfo.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
@@ -330,12 +318,14 @@ public class KabiFS extends HamFS {
 				buffer.put((byte)'\0');
 				byte_count++;
 			}
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return byte_count;
 			
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
@@ -358,16 +348,19 @@ public class KabiFS extends HamFS {
 			nid = findNodeByPath(path).nodeId();
 			
 			if (nid == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			
 			nodeinfo = getNode(nid, Constant.R_OK);
 			
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return nodeinfo.permission() ? 0 : -ErrorCodes.EACCES();
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
@@ -394,22 +387,27 @@ public class KabiFS extends HamFS {
 			nid = findNodeByPath(path).nodeId();
 			nodeinfo = getNode(nid, Constant.R_OK);
 			if (nid == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			if (nodeinfo.node().type() != KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tENOTDIR");
 				return -ErrorCodes.ENOTDIR();
 			}
 			if (!nodeinfo.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			for (DirectoryItem diritem : ((KabiDirectoryNode) nodeinfo.node()).subNodes()) {
 				filler.add(diritem.name());
 			}
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
@@ -434,12 +432,14 @@ public class KabiFS extends HamFS {
 			nid = findNodeByPath(path).nodeId();
 			
 			if (nid == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			
 			nodeinfo = getNode(nid, Constant.F_OK);
 	
 			if (!(getFuseContext().uid.longValue() == 0 || getFuseContext().uid.longValue() == ((KabiNoneDataNode)nodeinfo.node()).uid())) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
@@ -451,7 +451,7 @@ public class KabiFS extends HamFS {
 				dirNode = (KabiDirectoryNode) nodeinfo.node();
 				
 				if (dirNode.mode() == (int) (mode.mode() % 01000)) { // no change
-					fsoplogger.info("0");
+					fsoplogger.info("\t0");
 					return 0;
 				}
 				
@@ -468,7 +468,7 @@ public class KabiFS extends HamFS {
 				fileNode = (KabiFileNode) nodeinfo.node();
 				
 				if (fileNode.mode() == (int) (mode.mode() % 01000)) { // no change
-					fsoplogger.info("0");
+					fsoplogger.info("\t0");
 					return 0;
 				}
 				
@@ -480,7 +480,7 @@ public class KabiFS extends HamFS {
 						fileNode.subNodes(),
 						fileNode.size());
 			} else {
-				fsoplogger.info("-1");
+				fsoplogger.info("\t-1");
 				return -1;
 			}
 			
@@ -489,11 +489,13 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(nid.oid(), newObjId);
 			path2nodeCache.dirty(path);
 			commit.try2remove(pr.oldId());
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
@@ -511,10 +513,12 @@ public class KabiFS extends HamFS {
 			nodeinfo = getNode(path, Constant.W_OK);
 			
 			if (nodeinfo.node() == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			
 			if (!(getFuseContext().uid.longValue() == 0 || nodeinfo.permission())) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 	
@@ -526,7 +530,7 @@ public class KabiFS extends HamFS {
 				dirNode = (KabiDirectoryNode) nodeinfo.node();
 				
 				if (dirNode.uid() == uid && dirNode.gid() == gid) { // no change
-					fsoplogger.info("0");
+					fsoplogger.info("\t0");
 					return 0;
 				}
 				
@@ -543,7 +547,7 @@ public class KabiFS extends HamFS {
 				fileNode = (KabiFileNode) nodeinfo.node();
 				
 				if (fileNode.uid() == uid && fileNode.gid() == gid) { // no change
-					fsoplogger.info("0");
+					fsoplogger.info("\t0");
 					return 0;
 				}
 				
@@ -556,7 +560,7 @@ public class KabiFS extends HamFS {
 						fileNode.size()
 						);
 			} else {
-				fsoplogger.info("-1");
+				fsoplogger.info("\t-1");
 				return -1;
 			}
 			
@@ -564,11 +568,13 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(nodeinfo.node().id().oid(), newObjId);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
@@ -594,9 +600,10 @@ public class KabiFS extends HamFS {
 			
 			if (nid == null) {
 				if (access == Constant.F_OK) {
-					fsoplogger.info("-1");
+					fsoplogger.info("\t-1");
 					return -1;
 				} else {
+					fsoplogger.info("\tENOENT");
 					return -ErrorCodes.ENOENT();
 				}
 			}
@@ -607,8 +614,10 @@ public class KabiFS extends HamFS {
 			fsoplogger.info(ret);
 			return ret;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.readLock().unlock();
@@ -628,10 +637,12 @@ public class KabiFS extends HamFS {
 			}
 			
 			if (findNodeByPath(path).nodeId() != null) {
+				fsoplogger.info("\tEEXIST");
 				return -ErrorCodes.EEXIST();
 			}
 			
 			if (isFull()) {
+				fsoplogger.info("\tENOSPC");
 				return -ErrorCodes.ENOSPC();
 			}
 			
@@ -653,6 +664,7 @@ public class KabiFS extends HamFS {
 			an = getNode(parentNid, Constant.W_OK);
 			
 			if (!an.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 	
@@ -682,12 +694,14 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(parentNid.oid(), newParent);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(parentPath);
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 			
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().lock();
@@ -717,7 +731,7 @@ public class KabiFS extends HamFS {
 			n2 = findNodeByPath(path);
 			fileNid = n2.nodeId();
 			if (fileNid == null) {
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			
@@ -727,9 +741,11 @@ public class KabiFS extends HamFS {
 			fnodeinfo = getNode(fileNid, Constant.F_OK);
 			pnodeinfo = getNode(parentNid, Constant.W_OK);
 			if (fnodeinfo.node().type() == KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tEISDIR");
 				return -ErrorCodes.EISDIR();
 			}
 			if (!pnodeinfo.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
@@ -753,11 +769,13 @@ public class KabiFS extends HamFS {
 			commit.try2remove(fileNid.oid());
 			commit.try2remove(pr.oldId());
 			
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
@@ -778,6 +796,7 @@ public class KabiFS extends HamFS {
 			}
 			
 			if (path.equals(Helper.buildPath())) {
+				fsoplogger.info("\tEFAULT");
 				return -ErrorCodes.EFAULT();
 			}
 		
@@ -793,18 +812,22 @@ public class KabiFS extends HamFS {
 			dir = getNode(nids.nodeId(), Constant.F_OK);
 			
 			if (!dir.permission()) {
+				fsoplogger.info("\tEEXIST");
 				return -ErrorCodes.EEXIST();
 			}
 			if (dir.node().type() != KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tENOTDIR");
 				return -ErrorCodes.ENOTDIR();
 			}
 			if (!((KabiDirectoryNode)dir.node()).subNodes().isEmpty()) {
+				fsoplogger.info("\tENOTEMPTY");
 				return -ErrorCodes.ENOTEMPTY();
 			}
 			
 			pdir = getNode(nids.parentId() == null ? findNodeByPath(Helper.parentPath(path)).nodeId() : nids.parentId(), Constant.W_OK);
 			
 			if (!pdir.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
@@ -824,11 +847,13 @@ public class KabiFS extends HamFS {
 			path2nodeCache.dirty(Helper.parentPath(path));
 			commit.try2remove(nids.nodeId().oid());
 			commit.try2remove(pr.oldId());
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
@@ -850,19 +875,22 @@ public class KabiFS extends HamFS {
 			}
 			
 			if (path.equals(newName)) {
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			
 			if (path.equals(Helper.buildPath()) || newName.equals(Helper.buildPath())) {
+				fsoplogger.info("\tEBUSY");
 				return -ErrorCodes.EBUSY();
 			}
 			
 			if (newName.startsWith(path) && newName.charAt(path.length()) == File.separatorChar) {
+				fsoplogger.info("\tEINVAL");
 				return -ErrorCodes.EINVAL();
 			}
 	
 			if (isFull()) {
+				fsoplogger.info("\tENOSPC");
 				return -ErrorCodes.ENOSPC();
 			}
 		
@@ -882,21 +910,26 @@ public class KabiFS extends HamFS {
 			
 			
 			if (!s.permission()) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			
 			if ((!ps.permission()) || !pt.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
 			if (t.permission()) {
 				if (t.node().type() == KabiNodeType.DIRECTORY && s.node().type() != KabiNodeType.DIRECTORY) {
+					fsoplogger.info("\tEISDIR");
 					return -ErrorCodes.EISDIR(); 
 				}
 				if (t.node().type() != KabiNodeType.DIRECTORY && s.node().type() == KabiNodeType.DIRECTORY) {
+					fsoplogger.info("\tENOTDIR");
 					return -ErrorCodes.ENOTDIR(); 
 				}
 				if (t.node().type() == KabiNodeType.DIRECTORY && !((KabiDirectoryNode)t.node()).subNodes().isEmpty()) {
+					fsoplogger.info("\tENOTEMPTY");
 					return -ErrorCodes.ENOTEMPTY();
 				}
 			}
@@ -983,27 +1016,25 @@ public class KabiFS extends HamFS {
 				pr = commit.patch(psn.id().oid(), noid);
 				commit.try2remove(pr.oldId());
 			}
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} finally {
 			commit.writeLock().unlock();
 		}
 	}
-	//TODO
-	boolean tr = false;
+	
 	public final int truncate(String path, long offset) {
 		commit.writeLock().lock();
 		
 		try {
 
 			fsoplogger.info("truncate : " + path + ", " + offset);
-			
-			//TODO
-			if (path.equals("/a")) {tr = true;}
 			
 			int superTruncate;
 			superTruncate = super.truncate(path, offset);
@@ -1012,6 +1043,7 @@ public class KabiFS extends HamFS {
 			}
 			
 			if (offset < 0) {
+				fsoplogger.info("\tEINVAL");
 				return -ErrorCodes.EINVAL();
 			}
 			
@@ -1022,19 +1054,22 @@ public class KabiFS extends HamFS {
 			an = getNode(path, Constant.W_OK);
 			
 			if (an.node() == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			if (an.node().type() == KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tEISDIR");
 				return -ErrorCodes.EISDIR();
 			}
 			if (!an.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
 			fnode = (KabiFileNode) an.node();
 			
 			if (fnode.size() == offset) {
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			
@@ -1061,11 +1096,13 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(fnode.id().oid(), oid);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} finally {
 			commit.writeLock().unlock();
@@ -1090,19 +1127,22 @@ public class KabiFS extends HamFS {
 			an = getNode(path, Constant.W_OK);
 			
 			if (an.node() == null) {
+				fsoplogger.info("\tENOENT");
 				return -ErrorCodes.ENOENT();
 			}
 			
 			if (!an.permission() || wrapper == null) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			
 			if (path == null || !Helper.timeValid(wrapper)) {
+				fsoplogger.info("\tEINVAL");
 				return -ErrorCodes.EINVAL();
 			}
 			
 			if (wrapper.mod_nsec() == Constant.UTIME_OMIT) {
-				fsoplogger.info("0");
+				fsoplogger.info("\t0");
 				return 0;
 			}
 			
@@ -1125,11 +1165,13 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(an.node().id().oid(), oid);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} finally {
 			commit.writeLock().unlock();
@@ -1138,7 +1180,7 @@ public class KabiFS extends HamFS {
 	public final int write(String path, ByteBuffer buf, long writeSize, long writeOffset, FileInfoWrapper info) {
 		commit.writeLock().lock();
 		try {
-			fsoplogger.info("write : " + path);
+			fsoplogger.info("write : " + path + ", " + writeOffset + " - " + (writeOffset + writeSize));
 			
 			int superWrite;
 			superWrite = super.write(path, buf, writeSize, writeOffset, info);
@@ -1151,6 +1193,7 @@ public class KabiFS extends HamFS {
 			an = getNode(path, Constant.W_OK);
 			
 			if (!an.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			}
 			if (writeSize <= 0) {
@@ -1158,10 +1201,12 @@ public class KabiFS extends HamFS {
 				return 0;
 			}
 			if (isFull()) {
+				fsoplogger.info("\tENOSPC");
 				return -ErrorCodes.ENOSPC();
 			}
 			
 			if (an.node().type() != KabiNodeType.FILE) {
+				fsoplogger.info("\tEINVAL");
 				return -ErrorCodes.EINVAL();
 			}
 			
@@ -1274,11 +1319,13 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(fnode.id().oid(), newFileNode);
 			commit.try2remove(pr.oldId());
 			path2nodeCache.dirty(path);
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return (int) writeSize;
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} finally {
 			commit.writeLock().unlock();
@@ -1301,8 +1348,10 @@ public class KabiFS extends HamFS {
 			an = getNode(Helper.parentPath(path), Constant.W_OK);
 			
 			if (!an.permission()) {
+				fsoplogger.info("\tEACCESS");
 				return -ErrorCodes.EACCES();
 			} else if (an.node().type() != KabiNodeType.DIRECTORY) {
+				fsoplogger.info("\tENOTDIR");
 				return -ErrorCodes.ENOTDIR(); 
 			}
 			
@@ -1331,12 +1380,14 @@ public class KabiFS extends HamFS {
 			pr = commit.patch(dir.id().oid(), newDirOid);
 			path2nodeCache.dirty(Helper.parentPath(path));
 			commit.try2remove(pr.oldId());
-			fsoplogger.info("0");
+			fsoplogger.info("\t0");
 			return 0;
 			
 		} catch (MongoException ex) {
+			fsoplogger.info("\tEIO");
 			return -ErrorCodes.EIO();
 		} catch (PathResolException ex) {
+			fsoplogger.info("\tEACCESS");
 			return -ErrorCodes.EACCES();
 		} finally {
 			commit.writeLock().unlock();
