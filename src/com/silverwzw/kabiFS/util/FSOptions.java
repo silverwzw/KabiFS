@@ -8,7 +8,7 @@ import com.silverwzw.kabiFS.structure.Node;
 public final class FSOptions {
 	private long max_volumn;
 	private int min_block_size_kilo, max_block_size_kilo;
-	private String subnode_collection, file_collection, directory_collection;
+	private String subnode_collection, file_collection, directory_collection, log_collection;
 	private final String fsoptions_collection;
 	{
 		min_block_size_kilo = 1024;
@@ -17,6 +17,7 @@ public final class FSOptions {
 		subnode_collection = "subfile";
 		file_collection = "file";
 		directory_collection = "tree";
+		log_collection = "log";
 	}
 	public FSOptions(DBCollection dbcoll) {
 		DBObject dbo;
@@ -75,6 +76,14 @@ public final class FSOptions {
 				directory_collection = value;
 			}
 		}
+		
+		dbo = dbcoll.findOne(new BasicDBObject("_id", "log_collection"));
+		if (dbo != null) {
+			String value = (String) dbo.get("value");
+			if (!value.isEmpty()) {
+				log_collection = value;
+			}
+		}
 	}
 	public final String toString(){
 		return
@@ -83,7 +92,8 @@ public final class FSOptions {
 				+ "max_volumn = " + max_volumn + "\n\n"
 				+ "file collection : " + file_collection + "\n"
 				+ "subnode collection : " + subnode_collection + "\n"
-				+ "diretcoy collection : " + directory_collection + "\n";
+				+ "diretcoy collection : " + directory_collection + "\n"
+				+ "log collection : " + log_collection + "\n";
 	}
 	public final long min_block_size(){
 		return min_block_size_kilo * 1024;
@@ -108,5 +118,8 @@ public final class FSOptions {
 		default:
 			return null;
 		}
+	}
+	public final String log_collection() {
+		return log_collection;
 	}
 }
