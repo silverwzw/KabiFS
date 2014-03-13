@@ -611,7 +611,7 @@ public class KabiFS extends HamFS {
 			
 			//return getNode(nid, access).permission() ? 0 : -1 ;
 			int ret = getNode(nid, access).permission() ? 0 : -1 ;
-			fsoplogger.info(ret);
+			fsoplogger.info("\t" + ret);
 			return ret;
 		} catch (PathResolException ex) {
 			fsoplogger.info("\tEACCESS");
@@ -1297,7 +1297,22 @@ public class KabiFS extends HamFS {
 						}
 						buffer_count = 0;
 					}
-					bBuffer[buffer_count] = buf.get((int) (currentOffset - writeOffset));
+					try {
+						bBuffer[buffer_count] = buf.get((int) (currentOffset - writeOffset));
+					} catch (Exception ex) {
+						//log the error 
+						fsoplogger.info(ex);
+						fsoplogger.info(
+								"buffer_count = " + buffer_count + "\n"
+								+ "buf.capacity = " + buf.capacity() + "\n"
+								+ "i = " + (currentOffset - writeOffset) + "\n"
+								+ "currentOffset = " + currentOffset + "\n"
+								+ "writeOffset = " + writeOffset + "\n"
+								+ "writeSize = " + writeSize + "\n"
+								+ "lastoffset = " + lastoffset + "\n"
+								);
+						throw new RuntimeException(ex);
+					}
 					currentOffset++;
 					buffer_count++;
 				}

@@ -52,7 +52,6 @@ public class Mount {
 		
 		kabifs = new KabiFS(options);
 		kabifs.setLog(null);
-		//kabifs.setLog(Logger.getLogger("fuse"));
 		kabifs.mount(options.mountPoint());
 	}
 }

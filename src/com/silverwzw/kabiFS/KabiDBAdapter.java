@@ -1,7 +1,9 @@
 package com.silverwzw.kabiFS;
 
 import java.net.UnknownHostException;
+
 import java.security.NoSuchAlgorithmException;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -15,6 +17,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.log4j.Logger;
+
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
@@ -25,6 +28,7 @@ import com.mongodb.DBObject;
 import com.mongodb.Mongo;
 import com.mongodb.MongoException;
 import com.mongodb.ServerAddress;
+
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
@@ -77,9 +81,9 @@ public class KabiDBAdapter {
 			List<?> patchList;
 			
 			baseCommitDBObj = dbo; 
-
+			
 			while (baseCommitDBObj != null) {
-				patchList = (List<?>) dbo.get("patch");
+				patchList = (List<?>) baseCommitDBObj.get("patch");
 				for (Object obj : patchList) {
 					ObjectId origin, replace;
 					origin = (ObjectId)((DBObject) obj).get("origin");
@@ -90,14 +94,26 @@ public class KabiDBAdapter {
 						patches.put(origin, replace);
 					}
 				}
-				baseCommitOid = (ObjectId) dbo.get("base");
+				baseCommitOid = (ObjectId) baseCommitDBObj.get("base");
+				
 				if (baseCommitOid == null) {
-					patches.put(null, (ObjectId) dbo.get("root"));
+					ObjectId baseroot;
+					
+					baseroot = (ObjectId) baseCommitDBObj.get("root");
+					
+					if (!patches.containsKey(baseroot)) {
+						patches.put(null, baseroot);
+					} else {
+						patches.put(null, patches.get(baseroot));
+						patches.remove(baseroot);
+					}
+
 					return;
 				} else {
-					baseCommitDBObj = KabiDBAdapter.this.db().getCollection("commit").findOne(new BasicDBObject("_id", baseCommitOid));
+					baseCommitDBObj = KabiDBAdapter.this.db().getCollection(fsoptions.commit_collection()).findOne(new BasicDBObject("_id", baseCommitOid));
 				}
 			}
+			
 		}
 		
 		protected final KabiDBAdapter datastore() {
@@ -137,10 +153,12 @@ public class KabiDBAdapter {
 		public abstract class KabiWritableCommit extends Commit implements ReadWriteLock {
 
 			protected Collection<ObjectId> newObjIds;
+			private final ReadWriteLock locallock;
 			
 			{
 				newObjIds = new HashSet<ObjectId>();
 				timestamp = new Date().getTime();
+				locallock = new ReentrantReadWriteLock();
 			}
 			
 			protected KabiWritableCommit() {
@@ -288,37 +306,23 @@ public class KabiDBAdapter {
 				}
 			}
 			
-			public abstract boolean localonly();
-			
 			protected abstract PatchResult applyPatch(ObjectId origin, ObjectId replace);
+			
+			public final Lock readLock() {
+				return locallock.readLock();
+			}
+			
+			public final Lock writeLock() {
+				return locallock.writeLock();
+			}
+			
 		}
 		
-		public abstract class KabiLocalOnlyWritableCommit extends KabiWritableCommit {
-			private final ReadWriteLock lock;
-			{
-				lock = new ReentrantReadWriteLock();
-			}
-			protected KabiLocalOnlyWritableCommit() {
-				super();
-			}
-			protected KabiLocalOnlyWritableCommit(String branchName) {
-				super(branchName);
-			}
-			public final Lock readLock() {
-				return lock.readLock();
-			}
-			public final Lock writeLock() {
-				return lock.writeLock();
-			}
-			public final boolean localonly() {
-				return true;
-			}
-		}
 		/**
 		 * a writable commit based on current.
 		 * @author silverwzw
 		 */
-		public final class KabiDiffWrittingCommit extends KabiLocalOnlyWritableCommit {
+		public final class KabiDiffWrittingCommit extends KabiWritableCommit {
 			
 			private DBObject dbo;
 			
@@ -374,7 +378,7 @@ public class KabiDBAdapter {
 		 * make base to current writting commit.
 		 * @author silverwzw
 		 */
-		public class KabiRebaseCommit extends KabiLocalOnlyWritableCommit {
+		public class KabiRebaseCommit extends KabiWritableCommit {
 			private DBObject dbo;
 			
 			{
@@ -449,7 +453,7 @@ public class KabiDBAdapter {
 		 * a commit that store its patches info in mem, roll back db when unmount
 		 * @author silverwzw
 		 */
-		public final class KabiShadowCommit extends KabiLocalOnlyWritableCommit {
+		public final class KabiShadowCommit extends KabiWritableCommit {
 			
 			private final Map<ObjectId, ObjectId> diffPatches;
 			
@@ -615,7 +619,7 @@ public class KabiDBAdapter {
 		DBObject query, commitDBObj;
 		DBCollection commitCollection;
 		
-		commitCollection = db.getCollection("commit");
+		commitCollection = db.getCollection(fsoptions.commit_collection());
 		commitDBObj = null;
 		
 		if (timestamp != 0) {

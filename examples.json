@@ -1,6 +1,7 @@
 {
-	"mode" : "LOG",
-	"base" : "MAIN@1391413992008",
+	"mode" : "INDIRECT",
+	"base" : "MAIN@1340866308374",
+	"new" : "New_Branch",
 	"mongo" : {
 		"servers" : [
 			{

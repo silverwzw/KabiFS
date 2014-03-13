@@ -37,17 +37,15 @@ public class MountOptions {
 		 * if new branch name is given, this will create a new branch.<br>
 		 * otherwise, will append a new commit in current branch.
 		 */
-		LOG;
-		/**
-		 * convert a String representation of mount mode to MountMode enum
-		 * @param mode the String representation of mount mode
-		 * @return corresponding MountMode instance
-		 */
+		INDIRECT;
 		public final static MountMode getMode(String mode){
+			if (mode == null) {
+				return INDIRECT;
+			}
 			try {
 				return valueOf(mode.toUpperCase());
 			} catch (IllegalArgumentException ex) {
-				return LOG;
+				return INDIRECT;
 			}
 		}
 	};
@@ -61,12 +59,15 @@ public class MountOptions {
 	
 	static {
 		usage = "Usage: KabiFS <config_file> <mount_point>\n"
-				+ "\tconfig : a json config file, use \'-\' to read from stdin.\n"
+				+ "  config : a json config file, use \'-\' to read from stdin.\n"
 				+ "\tmount_point : the location to mount the filesystem\n\n"
-				+ "\tmode(String): by default is LOG, other options are: SHADOW, DIRECT\n"
+				+ "\tmode(String): by default is INDIRECT, other options are: SHADOW, DIRECT\n"
 				+ "\tbase(String): name of base commit/branch, by default is \"MAIN\" branch\n"
 				+ "\tnew (String): name of new branch\n"
-				+ "\tmongo(Array): mongodb connection details\n"
+				+ "\tmongo(Object): mongodb connection details\n"
+				+ "\t  servers(Array): specify the mongo servers\n"
+				+ "\t  db(String): specify the db of File System\n"
+				+ "\t  fsoptions(String): specify the collection that contains FS parameters\n"
 				+ "\tfuse (Array): fuse options\n";
 		namePolicy = "Note:\tBranch name should match regexp ^[0-9a-zA-Z_]+$\n"
 				+ "\tCommit name shoud match regexp ^[0-9a-zA-Z_]+@[0-9]*$\n";
@@ -88,9 +89,9 @@ public class MountOptions {
 	// fix the name when next time mounting this branch
 	
 	{
-		mountMode = MountMode.LOG;
+		mountMode = MountMode.INDIRECT;
 		baseCommitName = "MAIN@"; // latest commit in MAIN branch
-		newBranchName = "";
+		newBranchName = null;
 		fuseOptions = null;
 	}
 	
@@ -121,7 +122,7 @@ public class MountOptions {
 		if (config.get("mode") != null) {
 			mountMode = MountMode.getMode((String) config.get("mode").toObject());
 		} else {
-			mountMode = MountMode.LOG;
+			mountMode = MountMode.INDIRECT;
 		}
 		
 		if (config.get("base") != null) {
@@ -145,7 +146,7 @@ public class MountOptions {
 			}
 			newBranchName = newB;
 		} else {
-			newBranchName = "";
+			newBranchName = null;
 		}
 		
 		if (config.get("fuse") != null) {
@@ -194,7 +195,7 @@ public class MountOptions {
 	 * @return new branch name (if there's one specified, null otherwise)
 	 */
 	public final String newBranch() {
-		return newBranchName.equals("") ? Helper.getBranchNameByCommitName(baseCommit()): newBranchName;
+		return newBranchName == null ? Helper.getBranchNameByCommitName(baseCommit()): newBranchName;
 	}
 	/**
 	 * @return String representation of this instance, good for debug
