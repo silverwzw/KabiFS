@@ -26,6 +26,7 @@ public abstract class Commit {
 	
 	protected String branch;
 	protected long timestamp;
+	protected boolean rootCommit;
 
 	protected abstract ObjectId getActualOid(ObjectId oid);
 	protected abstract KabiDBAdapter datastore();
@@ -58,8 +59,12 @@ public abstract class Commit {
 		}
 	}
 	
-	public final KabiDirectoryNode root() {
+	public final KabiDirectoryNode rootDir() {
 		return new KabiDirectoryNode(new NodeId(null));
+	}
+	
+	public final boolean isRootCommit() {
+		return rootCommit;
 	}
 	
 	public final NodeId getNodeId(ObjectId oid) {
@@ -198,13 +203,14 @@ public abstract class Commit {
 	
 	public static class DataBlock extends Tuple3<ObjectId, Long, Long> {
 		private DBObject dbo;
+		private Long roll = null;
 		public DataBlock(DBObject dbo) {
 			this.dbo = dbo;
 			item1 = null;
 			item2 = null;
 			item3 = null;
 		}
-		public DataBlock(ObjectId subnodeoid, long offset, long omit) {
+		public DataBlock(ObjectId subnodeoid, long offset, long omit, long rolling) {
 			dbo = null;
 			if (subnodeoid == null) {
 				throw new NullPointerException();
@@ -212,15 +218,7 @@ public abstract class Commit {
 			item1 = subnodeoid;
 			item2 = offset;
 			item3 = omit;
-		}
-		public DataBlock(ObjectId subnodeoid, long offset) {
-			dbo = null;
-			if (subnodeoid == null) {
-				throw new NullPointerException();
-			}
-			item1 = subnodeoid;
-			item2 = offset;
-			item3 = 0L;
+			roll = rolling;
 		}
 		public final long omit() {
 			if (item3 == null) {
@@ -241,6 +239,12 @@ public abstract class Commit {
 				item1 = (ObjectId) dbo.get("obj");
 			}
 			return item1;
+		}
+		public final long roll() {
+			if (roll == null) {
+				roll = ((Number) dbo.get("roll")).longValue();
+			}
+			return roll;
 		}
 	}
 	

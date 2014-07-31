@@ -5,8 +5,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.SortedSet;
+import java.util.TreeSet;
 
 import org.apache.log4j.Logger;
 import org.bson.types.ObjectId;
@@ -14,6 +20,7 @@ import org.bson.types.ObjectId;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
 import com.mongodb.MongoException;
+import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiShadowCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit;
 import com.silverwzw.kabiFS.KabiDBAdapter.KabiPersistentCommit.KabiWritableCommit.PatchResult;
@@ -30,7 +37,9 @@ import com.silverwzw.kabiFS.util.Constant;
 import com.silverwzw.kabiFS.util.MountOptions;
 import com.silverwzw.kabiFS.util.Helper;
 import com.silverwzw.kabiFS.util.Path2NodeCache;
+import com.silverwzw.kabiFS.util.RollingHash;
 import com.silverwzw.kabiFS.util.Tuple2;
+import com.silverwzw.kabiFS.util.WriteBuffer;
 
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
@@ -39,7 +48,6 @@ import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
 import net.fusejna.StructStat.StatWrapper;
 import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.ModeWrapper;
-import net.fusejna.types.TypeMode.NodeType;
 
 public class KabiFS extends HamFS {
 	
@@ -51,14 +59,31 @@ public class KabiFS extends HamFS {
 	
 	private final KabiWritableCommit commit;
 	private final Path2NodeCache path2nodeCache;
+	private final Map<String, List<WriteBuffer>> bufferMap;
 	
 	{
 		path2nodeCache = new Path2NodeCache(100);
+		bufferMap = new HashMap<String, List<WriteBuffer>>();
 	}
 	
 	public KabiFS(MountOptions options) {
 		super(options);
-		commit = datastore.getPersistentCommit(options.baseCommit()).createShadow();
+		
+		KabiPersistentCommit persistent;
+		
+		persistent = datastore.getPersistentCommit(options.baseCommit());
+		
+		switch (options.mountMode()) {
+			case DIRECT:
+				commit = persistent.createNewRebaseCommit();
+				break;
+			case SHADOW:
+				commit = persistent.createShadow();
+				break;
+			case INDIRECT:
+			default:
+				commit = options.newBranch() == null ? persistent.createNewDiffCommit() : persistent.createNewDiffCommit(options.newBranch());
+		}	
 	}
 
 	private final static class AccessNode extends Tuple2<Boolean, Node> {
@@ -149,7 +174,7 @@ public class KabiFS extends HamFS {
 			return new NodeAndParent(nodenid, parentnid);
 		}
 		
-		nodenid = commit.root().id();
+		nodenid = commit.rootDir().id();
 		parentnid = null;
 		
 		if (path.equals(Helper.buildPath())) {
@@ -203,6 +228,224 @@ public class KabiFS extends HamFS {
 		path2nodeCache.put(path, nodenid);
 		return new NodeAndParent(nodenid, parentnid);
 	}
+
+
+	public final int flush(String path, FileInfoWrapper info) {
+		try {
+			flushBuffer(path);
+		} catch (PathResolException e) {
+			return -ErrorCodes.EACCES();
+		}
+		return 0;
+	}
+
+	public final int fsync(String path, int datasync, FileInfoWrapper info) {
+		try {
+			flushBuffer(path);
+		} catch (PathResolException e) {
+			return -ErrorCodes.EACCES();
+		}
+		return 0;
+	}
+	
+	private final void flushBuffer(String path) throws PathResolException {
+		commit.writeLock().lock();
+		try {
+			List<WriteBuffer> list1, list2;
+			
+			list1 = bufferMap.remove(path);
+			
+			if (list1 == null) {
+				return;
+			}
+			
+			list2 = new LinkedList<WriteBuffer>();
+			
+			//handle overlaps
+			for (WriteBuffer wbAdding : list1) {
+				Iterator<WriteBuffer> iter;
+				iter = list2.iterator();
+				while (iter.hasNext()) {
+					WriteBuffer wbAdded;
+					wbAdded = iter.next();
+					if (WriteBuffer.mergable(wbAdded, wbAdding)) {
+						wbAdding = WriteBuffer.merge(wbAdded, wbAdding);
+						iter.remove();
+					}
+				}
+				list2.add(wbAdding);
+			}
+			
+			KabiFileNode fnode;
+			List<DataBlock> blocks;
+			Map<Long, DataBlock> rollingMap;
+			
+			fnode =  (KabiFileNode) getNode(path, Constant.W_OK).node();
+			blocks = new LinkedList<DataBlock>(fnode.subNodes());
+			rollingMap = new HashMap<Long, DataBlock>();
+			
+			for (DataBlock block : blocks) {
+				rollingMap.put(block.roll(), block);
+			}
+			
+			for (WriteBuffer wb : list2) {
+				blocks = flushOneBuffer(blocks, wb, rollingMap);
+			}
+			
+			//TODO: final flush
+			
+		} finally {
+			commit.writeLock().unlock();
+		}
+	}
+	
+	private final List<DataBlock> flushOneBuffer(List<DataBlock> blocks, WriteBuffer buffer, Map<Long, DataBlock> rollingMap) {
+		long i,j,k;
+		RollingHash rh;
+
+		i = k = j = buffer.startByteIndex();
+		
+		while (j <= buffer.endByteIndex() - fsoptions.block_size() + 1) {
+			
+			i = k = j;
+			rh = new RollingHash(fsoptions.block_size());
+			
+			while (rh.eatmore()) {
+				rh.eat(buffer.getByByteIndex(j++));
+			}
+		
+			while (j <= buffer.endByteIndex()) {
+				if (rollingMap.containsKey(rh.value())) {
+					//double check sha256
+					byte[] bytes, digest;
+					bytes = new byte[(int)fsoptions.block_size()];
+					for (int n = 0; n < bytes.length; n++) {
+						bytes[n] = buffer.getByByteIndex(n + i);
+					}
+					digest = Helper.sha256(bytes);
+					if (Helper.sameDigest(digest, rollingMap.get(rh.value()).oid().toByteArray())) {
+						if (k <= i - 1) {
+							blocks = updateBlockList(blocks, buffer, k, i - 1, rollingMap);
+						}
+						blocks = updateBlockList(blocks, rollingMap.get(rh.value()), i, j - 1);
+						break;
+					}
+				}
+				rh.update(buffer.getByByteIndex(i++), buffer.getByByteIndex(j++));
+			}
+			
+		}
+		blocks = updateBlockList(blocks, buffer, k, buffer.endByteIndex(), rollingMap);
+		return blocks;
+	}
+	
+	private final List<DataBlock> updateBlockList(List<DataBlock> blocks, DataBlock newBlock, long startByteIndex, long endByteIndex) {
+		List <DataBlock> newList;
+		long beginOffset;
+		
+		newList = new LinkedList<DataBlock>();
+		beginOffset = 0;
+		
+		for (DataBlock block : blocks) {
+			if (block.endoffset() <= startByteIndex || beginOffset > endByteIndex) {
+				
+				newList.add(block);
+				
+			} else {
+				
+				
+				
+			}
+		}
+		
+		return newList;
+	}
+	
+	private final List<DataBlock> updateBlockList(List<DataBlock> blocks, WriteBuffer buffer, long startByteIndex, long endByteIndex, Map<Long, DataBlock> rollingMap) {
+		Iterator<DataBlock> iter;
+		long beginOffset;
+		List<DataBlock> newList;
+		
+		iter = blocks.iterator();
+		beginOffset = 0;
+		newList = new LinkedList<DataBlock>();
+		
+		while (iter.hasNext()) {
+			DataBlock block;
+			block = iter.next();
+			if (block.endoffset() <= startByteIndex || beginOffset > endByteIndex) {
+				
+				newList.add(block);
+				
+			} else {
+				
+				if (block.endoffset() > startByteIndex && beginOffset < startByteIndex) {
+					newList.add(new DataBlock(block.oid(), startByteIndex, block.omit(), block.roll()));
+				}
+				
+				byte[] data;
+				int i;
+				RollingHash rh;
+				
+				data = null;
+				i = 0;
+				rh = new RollingHash(fsoptions.block_size());
+				
+				for (Byte b : buffer) {
+					if (data == null) {
+						data = new byte[(int) fsoptions.block_size()];
+					}
+					
+					data[i] = buffer.get(i);
+					rh.eat(data[i]);
+					i++;
+					
+					if (i == data.length) {
+						ObjectId newDatanNodeOid;
+						newDatanNodeOid = commit.addSubNode2db(data);
+						newList.add(new DataBlock(newDatanNodeOid, beginOffset + data.length, 0, rh.value()));
+						beginOffset = beginOffset + data.length;
+						data = null;
+					}
+				}
+				
+				if (data != null) {
+					while (rh.eatmore()) {
+						rh.eat((byte)0);
+					}
+					
+					byte[] data2;
+					DataBlock newBlock;
+					
+					data2 = new byte[i];
+					
+					for (int j = 0; j < i; j++) {
+						data2[j] = data[j];
+					}
+					
+					newBlock = new DataBlock(commit.addSubNode2db(data2), beginOffset + data2.length, 0, rh.value());
+					newList.add(newBlock);
+					rollingMap.put(rh.value(), newBlock);
+					beginOffset = beginOffset + data2.length;
+					data = null;
+				}
+				
+				while (iter.hasNext()) {
+					block = iter.next();
+					beginOffset = block.endoffset();
+					if (block.endoffset() > endByteIndex + 1) {
+						break;
+					}
+				}
+				
+				if (beginOffset <= endByteIndex && block.endoffset() > endByteIndex + 1) {
+					newList.add(new DataBlock(block.oid(), block.endoffset(), block.omit() + endByteIndex - beginOffset + 1, block.roll()));
+				}
+			}
+			beginOffset = block.endoffset();
+		}
+		return newList;
+	}
 	
 	public final boolean isFull() {
 		return ((Number) commit.datastore().db().getStats().get("fileSize")).longValue()
@@ -214,11 +457,6 @@ public class KabiFS extends HamFS {
 		commit.readLock().lock();
 		try {
 			fsoplogger.info("getattr : " + path);
-			if (path.equals(Helper.buildPath())) { // Root directory
-				stat.setMode(NodeType.DIRECTORY);
-				fsoplogger.info("\t0");
-				return 0;
-			}
 			if (super.getattr(path, stat) >= 0) {
 				fsoplogger.info("\t0");
 				return 0;
@@ -367,6 +605,15 @@ public class KabiFS extends HamFS {
 		}
 	}
 	
+	public final int release(String path, FileInfoWrapper info) {
+		try {
+			flushBuffer(path);
+		} catch (PathResolException e) {
+			return -ErrorCodes.EACCES();
+		}
+		return 0;
+	}
+	
 	public final int readdir(final String path, final DirectoryFiller filler)
 	{
 		if (path.equals(Helper.buildPath())) {
@@ -424,7 +671,7 @@ public class KabiFS extends HamFS {
 
 		commit.writeLock().lock();
 		try {
-			fsoplogger.info("chmod : " + path);
+			fsoplogger.info("chmod : " + path + ", " + Integer.toOctalString((int) (mode.mode() % 01000)));
 			
 			NodeId nid;
 			AccessNode nodeinfo;
@@ -1083,7 +1330,7 @@ public class KabiFS extends HamFS {
 						subs.add(en);
 						break;
 					} else {
-						subs.add(new DataBlock(en.oid(), offset));
+						subs.add(new DataBlock(en.oid(), offset, 0, en.roll()));
 						break;
 					}
 				}
@@ -1210,6 +1457,13 @@ public class KabiFS extends HamFS {
 				return -ErrorCodes.EINVAL();
 			}
 			
+			
+			if (bufferMap.get(path) == null) {
+				bufferMap.put(path, new LinkedList<WriteBuffer>());
+			}
+			
+			bufferMap.get(path).add(WriteBuffer.create(buf.array(), writeOffset, writeSize));
+			/*
 			KabiFileNode fnode;
 			List<DataBlock> newSubNodes;
 			long lastoffset = 0;
@@ -1333,7 +1587,7 @@ public class KabiFS extends HamFS {
 			newFileNode = commit.addFileNode2db(fnode.uid(), fnode.gid(), fnode.mode(), new Date(), newSubNodes, newSize);
 			pr = commit.patch(fnode.id().oid(), newFileNode);
 			commit.try2remove(pr.oldId());
-			path2nodeCache.dirty(path);
+			path2nodeCache.dirty(path);*/
 			fsoplogger.info("\t0");
 			return (int) writeSize;
 		} catch (MongoException ex) {

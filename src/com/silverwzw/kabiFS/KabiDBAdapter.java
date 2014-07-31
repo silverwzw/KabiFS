@@ -1,9 +1,6 @@
 package com.silverwzw.kabiFS;
 
 import java.net.UnknownHostException;
-
-import java.security.NoSuchAlgorithmException;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -17,7 +14,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.log4j.Logger;
-
 import org.bson.types.ObjectId;
 
 import com.mongodb.BasicDBObject;
@@ -28,7 +24,6 @@ import com.mongodb.DBObject;
 import com.mongodb.Mongo;
 import com.mongodb.MongoException;
 import com.mongodb.ServerAddress;
-
 import com.silverwzw.kabiFS.structure.Commit;
 import com.silverwzw.kabiFS.structure.Node;
 import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
@@ -41,15 +36,9 @@ import com.silverwzw.kabiFS.util.Helper.ObjectNotFoundException;
 public class KabiDBAdapter {
 	
 	private static final Logger logger;
-	private static final java.security.MessageDigest sha256;
 	
 	static {
 		logger = Logger.getLogger(KabiDBAdapter.class);
-		try {
-			sha256 = java.security.MessageDigest.getInstance("SHA-256");
-		} catch (NoSuchAlgorithmException e) {
-			throw new RuntimeException("Algorithm SHA-256 not found.");
-		}
 	}
 	
 	private DB db;
@@ -75,6 +64,7 @@ public class KabiDBAdapter {
 			id = (ObjectId) dbo.get("_id");
 			branch = (String) dbo.get("name");
 			timestamp = ((Date) dbo.get("timestamp")).getTime();
+			rootCommit = dbo.get("root") != null;
 			
 			DBObject baseCommitDBObj;
 			ObjectId baseCommitOid;
@@ -139,7 +129,7 @@ public class KabiDBAdapter {
 		} 
 		
 		public final KabiWritableCommit createNewRebaseCommit() {
-			if (dbo().get("base") == null) {
+			if (isRootCommit()) {
 				return new KabiDiffWrittingCommit(branch);
 			} else {
 				return createNewDiffCommit();
@@ -183,7 +173,7 @@ public class KabiDBAdapter {
 					for (DataBlock block : (Collection<DataBlock>) subnodes) {
 						BasicDBObject blockdbo;
 						blockdbo = block.omit() == 0 ? new BasicDBObject() : new BasicDBObject("omit", block.omit());
-						arcs.add(blockdbo.append("obj", block.oid()).append("offset", block.endoffset()));
+						arcs.add(blockdbo.append("obj", block.oid()).append("offset", block.endoffset()).append("roll", block.roll()));
 					}
 				}
 				
@@ -229,20 +219,12 @@ public class KabiDBAdapter {
 			public final ObjectId addSubNode2db(byte[] bytes) {
 				DBObject subDBObj;
 				ObjectId newObjId;
-				byte[] digest, id;
 				
-				
-				digest = sha256.digest(bytes);
-				id = new byte[12];
-				for (int i = 0; i < id.length; i++) {
-					id[i] = 0;
+				if (bytes.length > fsoptions.block_size()) {
+					throw new RuntimeException();
 				}
 				
-				for (int i = 0; i < digest.length; i++) {
-					id[i % 12] ^= digest[i];
-				}
-
-				newObjId = new ObjectId(id);
+				newObjId = new ObjectId(Helper.sha256(bytes));
 				subDBObj = new BasicDBObject("_id", newObjId).append("data", bytes);
 				try {
 					KabiPersistentCommit.this.datastore().db()
@@ -331,6 +313,7 @@ public class KabiDBAdapter {
 			{
 				dbo = null;
 				diffPatches = new HashMap<ObjectId, ObjectId>();
+				rootCommit = false;
 			}
 			
 			protected KabiDiffWrittingCommit() {
@@ -383,6 +366,7 @@ public class KabiDBAdapter {
 			
 			{
 				dbo = null;
+				rootCommit = true;
 			}
 			
 			protected KabiRebaseCommit() {
@@ -412,6 +396,8 @@ public class KabiDBAdapter {
 					
 					persistentCommitDBObj.put("root", null);
 					persistentCommitDBObj.put("base", (ObjectId) dbo.get("_id"));
+
+					KabiPersistentCommit.this.rootCommit = false;
 					
 					commitCollection.save(persistentCommitDBObj);
 					

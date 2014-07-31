@@ -2,6 +2,7 @@ package com.silverwzw.kabiFS.util;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.regex.Pattern;
 
@@ -9,7 +10,6 @@ import net.fusejna.StructStat.StatWrapper;
 import net.fusejna.StructTimeBuffer.TimeBufferWrapper;
 import net.fusejna.types.TypeMode.NodeType;
 
-import org.apache.log4j.Logger;
 
 import com.mongodb.DBObject;
 import com.silverwzw.kabiFS.KabiDBAdapter.CommitListItem;
@@ -26,13 +26,15 @@ import com.silverwzw.kabiFS.structure.Node.KabiNodeType;
 public final class Helper {
 
 	private static final Pattern commitNamePattern, branchNamePattern;
-	@SuppressWarnings("unused")
-	private static final Logger logger;
-	
+	private static final java.security.MessageDigest sha256;
 	static {
+		try {
+			sha256 = java.security.MessageDigest.getInstance("SHA-256");
+		} catch (NoSuchAlgorithmException e) {
+			throw new RuntimeException("Algorithm SHA-256 not found.");
+		}
 		commitNamePattern = Pattern.compile("^[0-9a-zA-Z_]+@[0-9]*$");
 		branchNamePattern = Pattern.compile("^[0-9a-zA-Z_]+$");
-		logger = Logger.getLogger(Helper.class);
 	}
 	/**
 	 * Build a path, e.g. input [a,b,c] returns /a/b/c
@@ -194,5 +196,37 @@ public final class Helper {
 						|| (timewrapper.mod_nsec() > 0 && timewrapper.mod_nsec() < 999999999)
 						)
 				;
+	}
+	
+	public final static byte[] sha256(byte[] bytes) {
+		byte[] digest, ret;
+		
+
+		digest = sha256.digest(bytes);
+		ret = new byte[12];
+		
+
+		
+		for (int i = 0; i < ret.length; i++) {
+			ret[i] = 0;
+		}
+		
+		for (int i = 0; i < digest.length; i++) {
+			ret[i % 12] ^= digest[i];
+		}
+		
+		return ret;
+	}
+	
+	public final static boolean sameDigest(byte[] digest1, byte[] digest2) {
+		if (digest1.length != digest2.length) {
+			return false;
+		}
+		for (int i = 0; i < digest1.length; i++) {
+			if (digest1[i] != digest2[i]) {
+				return false;
+			}
+		}
+		return true;
 	}
 }

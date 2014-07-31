@@ -1,9 +1,8 @@
-/mnt
+/mnt/*
 /bin
 /lib/log4j-1.2.17-javadoc.jar
 /lib/mongo-java-driver-2.9.3-javadoc.jar
 /fuse-jna/net/fusejna/examples
 /log
 /fsoplog
-/mongo_backup
 *.class

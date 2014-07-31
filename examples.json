@@ -1,7 +1,6 @@
 {
 	"mode" : "INDIRECT",
-	"base" : "MAIN@1340866308374",
-	"new" : "New_Branch",
+	"base" : "New_Branch@1394757812542",
 	"mongo" : {
 		"servers" : [
 			{

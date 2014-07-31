@@ -102,15 +102,15 @@ public class HamFS extends FuseFilesystem {
 		return getattr(path, stat);
 	}
 
-	public final int flush(String path, FileInfoWrapper info) {
+	public int flush(String path, FileInfoWrapper info) {
 		return 0;
 	}
 
-	public final int fsync(String path, int datasync, FileInfoWrapper info) {
+	public int fsync(String path, int datasync, FileInfoWrapper info) {
 		return 0;
 	}
 
-	public final int fsyncdir(String path, int datasync, FileInfoWrapper info) {
+	public int fsyncdir(String path, int datasync, FileInfoWrapper info) {
 		return 0;
 	}
 
